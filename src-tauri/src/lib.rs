@@ -68,7 +68,9 @@ pub fn run() {
                 .join("models");
             let _ = std::fs::create_dir_all(&model_dir);
 
-            let _ = app.handle();
+            // Start gamepad polling thread (fire-and-forget, logs warning if no gamepad)
+            input::gamepad::start_gamepad_thread(app.handle().clone());
+
             Ok(())
         })
         .run(tauri::generate_context!())

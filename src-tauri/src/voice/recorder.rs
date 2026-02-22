@@ -83,8 +83,9 @@ fn recorder_thread(
     loop {
         match cmd_rx.recv() {
             Ok(RecordCmd::Start) => {
-                // Set up audio capture
+                // Uses ALSA host, which routes through PipeWire via pipewire-alsa.
                 let host = cpal::default_host();
+
                 let device = match host.default_input_device() {
                     Some(d) => d,
                     None => {

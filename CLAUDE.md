@@ -10,7 +10,8 @@ DeckMind is a Tauri 2 desktop app that wraps Claude Code CLI in a gamepad-style 
 - **Backend:** Rust (Tauri 2), tokio async runtime
 - **Terminal:** xterm.js v6 (`@xterm/xterm`) with WebGL addon
 - **PTY:** `portable-pty` crate for subprocess management
-- **Voice:** `whisper-rs` (whisper.cpp bindings) + `cpal` for audio capture
+- **Voice:** `whisper-rs` (whisper.cpp bindings) + `cpal` for audio capture (ALSA via pipewire-alsa)
+- **Gamepad:** Direct hidraw reading of Steam Deck controller HID reports (bypasses Steam Input's evdev grab)
 - **Config:** YAML at `~/.deckmind/config.yaml`
 - **Storage:** Local-only, `~/.deckmind/` directory
 
@@ -43,6 +44,28 @@ Claude Code's TUI has paste detection: if text + newline arrive in a single PTY 
 - **Control sequences** (Escape, Ctrl+C, Shift+Tab): Single `pty_write` call, no delay needed
 - **Never use `terminal.input()`** from xterm.js — it batches bytes, triggering paste detection
 
+### Gamepad Input (Steam Deck)
+
+Steam Input grabs exclusive access to the controller at the evdev layer in Desktop Mode, so standard gamepad libraries (`gilrs`, SDL, evdev) see no events. DeckMind reads the controller directly via **hidraw**.
+
+The Rust gamepad thread (`input/gamepad.rs`):
+1. Scans `/sys/class/hidraw/` for Valve's USB IDs (vendor `28DE`, product `1205`)
+2. Opens the hidraw device that streams 64-byte HID reports
+3. Decodes the button bitmask at bytes 8-11 (little-endian u32)
+4. Emits `gamepad-button` Tauri events with `{ button: "A", pressed: true }`
+
+Button bit mapping (Steam Deck HID protocol):
+```
+bit 0=R2  1=L2  2=R1  3=L1  4=Y  5=B  6=X  7=A
+bit 8=DPadUp  9=DPadRight  10=DPadLeft  11=DPadDown
+bit 12=Select  13=Steam  14=Start  15=L5  16=R5
+bit 17=LeftPadClick  18=RightPadClick  22=L3  26=R3
+```
+
+The frontend `useGamepad` hook listens for these events and dispatches actions. It uses `useAppStore.getState()` snapshots (not hook state) to avoid stale closures. Two modes:
+- **Normal mode:** A=Send, B=Stop/Resume, L1=CycleMode, R1=ToggleMenu, R2=Voice(hold), Select=Escape, Start=Settings, DPad=Arrows, X/Y=semantic actions from config
+- **Menu mode (R1 open):** X=Context, Y=Explain, A=Fix, DPadUp=Plan, DPadDown=Summarize, B=Close
+
 ### Resume ID Parsing
 
 When Claude exits and offers a resume option, the resume ID is parsed from the **xterm.js terminal buffer** (not raw PTY output). The buffer is already ANSI-free rendered text, so no escape code stripping is needed. The `claude-exited` event handler reads the last 30 lines of `term.buffer.active` and matches `claude --resume <uuid>`.
@@ -63,6 +86,7 @@ src/                              # React frontend
     VoiceIndicator.tsx              # Recording overlay
   hooks/
     useActions.ts                   # Builds action prompts, populates draft text
+    useGamepad.ts                   # Physical gamepad → action dispatch via Tauri events
     useKeyboard.ts                  # Global keyboard shortcuts + arrow key forwarding
     useSession.ts                   # Session CRUD + event listeners + buffer parsing
   stores/
@@ -80,6 +104,9 @@ src-tauri/src/                    # Rust backend
     templates.rs                    # SemanticAction enum + prompt templates
   config/
     schema.rs                       # AppConfig, SafetyMode, ButtonMapping structs
+  input/
+    gamepad.rs                      # Hidraw reader thread for Steam Deck controller
+    keyboard.rs                     # KeyboardInput (matches key combos to actions)
   context/
     collector.rs                    # ContextCollector (git, cwd, shell history)
   session/
@@ -103,6 +130,8 @@ src-tauri/src/                    # Rust backend
 | `src/hooks/useSession.ts` | Event listeners, xterm.js buffer parsing for resume ID |
 | `src/stores/appStore.ts` | Central Zustand store |
 | `src/components/TerminalPane.tsx` | xterm.js setup, WebGL, resize handling |
+| `src-tauri/src/input/gamepad.rs` | Hidraw polling thread, Steam Deck HID button decoding |
+| `src/hooks/useGamepad.ts` | Gamepad event → action dispatch (normal + menu mode) |
 
 ## Tauri Commands
 
@@ -134,33 +163,42 @@ Actions populate the text input bar (draft text) for user review before sending:
 | Stop | Escape | Sends Ctrl+C to PTY |
 | Voice | Ctrl+Space | Hold to record, release to transcribe |
 
-## Controller Bar Buttons
+## Controller Bar / Gamepad Buttons
 
-| Button | Normal State | Session Ended |
-|--------|-------------|---------------|
-| **B** | Stop (Ctrl+C) | Start or Resume |
-| **A** | Send (draft text + Enter) | Send |
-| **L1** | Cycle safety mode (Shift+Tab) | — |
-| **R1** | Toggle action menu | — |
-| **R2** | Push-to-talk voice | — |
-| **Menu** | Send Escape | — |
+Works with both on-screen clicks and physical Steam Deck buttons (via hidraw).
+
+| Button | Normal Mode | Menu Mode (R1 open) | Session Ended |
+|--------|------------|---------------------|---------------|
+| **A** | Send draft text | Fix action | Send |
+| **B** | Stop (Ctrl+C) | Close menu | Start or Resume |
+| **X** | Context (from config) | Context action | — |
+| **Y** | Explain (from config) | Explain action | — |
+| **L1** | Cycle safety mode (Shift+Tab) | — | — |
+| **R1** | Toggle action menu | Close menu | — |
+| **R2** | Push-to-talk voice (hold) | — | — |
+| **Select** | Send Escape | — | — |
+| **Start** | Toggle settings | — | — |
+| **DPad** | Arrow keys to PTY | Up=Plan, Down=Summarize | — |
 
 ## Build & Run
 
+All builds run inside the `deckmind-dev` distrobox (Arch Linux) on the Steam Deck. The host SteamOS filesystem is read-only; the distrobox has the full toolchain.
+
 ```bash
-# Frontend build
-npm install
-npx vite build
+# Dev mode (frontend + backend, hot reload)
+distrobox enter deckmind-dev -- bash -c "cd ~/Projects/deckmind && npm run tauri dev"
 
-# Rust check (from src-tauri/)
-cd src-tauri && cargo check
+# Rust check only
+distrobox enter deckmind-dev -- bash -c "cd ~/Projects/deckmind/src-tauri && cargo check"
 
-# Dev mode (both frontend + backend)
-npm run tauri dev
+# TypeScript check only
+distrobox enter deckmind-dev -- bash -c "cd ~/Projects/deckmind && npx tsc --noEmit"
 
 # Production build
-npm run tauri build
+distrobox enter deckmind-dev -- bash -c "cd ~/Projects/deckmind && npm run tauri build"
 ```
+
+A desktop shortcut exists at `~/Desktop/DeckMind.desktop` for quick dev-mode launches.
 
 ## Configuration
 
@@ -177,6 +215,7 @@ default_working_dir: null      # Optional default cwd for new sessions
 
 ## Development Notes
 
+- All builds run inside `deckmind-dev` distrobox — never on the host SteamOS directly
 - Rust builds from `src-tauri/`, not project root (`cargo check` must run from there)
 - The `--dangerously-skip-permissions` flag is always passed to Claude Code
 - `CLAUDECODE` env var is removed so Claude doesn't think it's nested
@@ -184,3 +223,9 @@ default_working_dir: null      # Optional default cwd for new sessions
 - The terminal theme matches the UI cyber theme (dark blue `#0a0e17` background)
 - Arrow keys are forwarded to the PTY as ANSI escape sequences when not in the text input
 - The text input auto-resizes up to 8 rows based on content
+
+### Steam Deck Platform Notes
+
+- **Gamepad:** Steam grabs exclusive evdev access in Desktop Mode. DeckMind reads `/dev/hidraw*` directly (Valve vendor `28DE`, product `1205`) to get button events. Standard gamepad libraries (gilrs, SDL) will not work.
+- **Audio:** cpal uses ALSA, which must route through PipeWire via `pipewire-alsa` (installed in distrobox). Without it, recording returns silence. The internal mic source is a PipeWire loopback device.
+- **Distrobox deps:** The distrobox needs `systemd-libs` (for libudev), `pipewire-alsa` (for mic capture), and standard Rust/Node toolchains. Install with `sudo pacman -S --noconfirm systemd-libs pipewire-alsa`.

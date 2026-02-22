@@ -10,6 +10,7 @@ import { TextInput } from './components/TextInput'
 import { SettingsPanel } from './components/SettingsPanel'
 import { useSession } from './hooks/useSession'
 import { useKeyboard } from './hooks/useKeyboard'
+import { useGamepad } from './hooks/useGamepad'
 import { useAppStore } from './stores/appStore'
 import type { AppConfig } from './types'
 
@@ -18,6 +19,7 @@ function App() {
   const { setConfig } = useAppStore()
 
   useKeyboard()
+  useGamepad()
 
   useEffect(() => {
     setupListeners()

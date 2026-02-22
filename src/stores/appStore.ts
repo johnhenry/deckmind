@@ -27,6 +27,9 @@ interface AppStore {
   sessionEnded: boolean
   claudeResumeId: string | null
 
+  // Gamepad
+  activeGamepadButton: string | null
+
   // Actions
   setSessions: (sessions: SessionInfo[]) => void
   setActiveSession: (id: string | null) => void
@@ -41,6 +44,7 @@ interface AppStore {
   setDraftText: (text: string) => void
   setSessionEnded: (ended: boolean) => void
   setClaudeResumeId: (id: string | null) => void
+  setActiveGamepadButton: (button: string | null) => void
 }
 
 export const useAppStore = create<AppStore>((set) => ({
@@ -56,6 +60,7 @@ export const useAppStore = create<AppStore>((set) => ({
   draftText: '',
   sessionEnded: false,
   claudeResumeId: null,
+  activeGamepadButton: null,
 
   setSessions: (sessions) => set({ sessions }),
   setActiveSession: (id) => set({ activeSessionId: id }),
@@ -73,4 +78,5 @@ export const useAppStore = create<AppStore>((set) => ({
   setDraftText: (text) => set({ draftText: text }),
   setSessionEnded: (ended) => set({ sessionEnded: ended }),
   setClaudeResumeId: (id) => set({ claudeResumeId: id }),
+  setActiveGamepadButton: (button) => set({ activeGamepadButton: button }),
 }))

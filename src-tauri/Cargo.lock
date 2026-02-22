@@ -687,6 +687,7 @@ dependencies = [
  "cpal",
  "dirs",
  "env_logger",
+ "libc",
  "log",
  "portable-pty",
  "serde",

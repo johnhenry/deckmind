@@ -642,3 +642,9 @@ body {
   cursor: not-allowed;
 }
 
+/* Gamepad button active highlight */
+.gamepad-active {
+  box-shadow: 0 0 12px rgba(0, 255, 255, 0.6);
+  border-color: var(--border-active) !important;
+}
+

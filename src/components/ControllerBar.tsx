@@ -34,6 +34,7 @@ export function ControllerBar() {
     claudeResumeId,
     setSessionEnded,
     setClaudeResumeId,
+    activeGamepadButton,
   } = useAppStore()
 
   // L1: Send Shift+Tab (ESC [ Z) to cycle Claude's permission mode
@@ -134,7 +135,7 @@ export function ControllerBar() {
     <div className="controller-bar">
       {/* L1 - Cycle Claude's permission mode via Shift+Tab */}
       <button
-        className="bumper-btn mode-btn"
+        className={`bumper-btn mode-btn${activeGamepadButton === 'L1' ? ' gamepad-active' : ''}`}
         onClick={cycleSafetyMode}
         disabled={!activeSessionId}
         title="Cycle permission mode (Shift+Tab)"
@@ -147,7 +148,7 @@ export function ControllerBar() {
 
       {/* Menu - Send Escape */}
       <button
-        className="controller-btn menu-btn"
+        className={`controller-btn menu-btn${activeGamepadButton === 'Menu' ? ' gamepad-active' : ''}`}
         onClick={handleMenu}
         disabled={!activeSessionId}
         title="Escape"
@@ -162,7 +163,7 @@ export function ControllerBar() {
       <div className="face-group">
         {sessionEnded ? (
           <button
-            className="controller-btn face-btn face-b"
+            className={`controller-btn face-btn face-b${activeGamepadButton === 'B' ? ' gamepad-active' : ''}`}
             onClick={handleRestart}
             disabled={!activeSessionId}
             title={claudeResumeId ? `Resume session (${claudeResumeId})` : 'Start new Claude session'}
@@ -172,7 +173,7 @@ export function ControllerBar() {
           </button>
         ) : (
           <button
-            className="controller-btn face-btn face-b"
+            className={`controller-btn face-btn face-b${activeGamepadButton === 'B' ? ' gamepad-active' : ''}`}
             onClick={handleStop}
             disabled={!activeSessionId}
             title="Stop / Interrupt (Ctrl+C)"
@@ -182,7 +183,7 @@ export function ControllerBar() {
           </button>
         )}
         <button
-          className="controller-btn face-btn face-a"
+          className={`controller-btn face-btn face-a${activeGamepadButton === 'A' ? ' gamepad-active' : ''}`}
           onClick={handleSend}
           disabled={!activeSessionId || !draftText.trim()}
           title="Send message (Enter)"
@@ -196,7 +197,7 @@ export function ControllerBar() {
 
       {/* R1 - Action menu toggle */}
       <button
-        className={`bumper-btn ${showActionMenu ? 'active' : ''}`}
+        className={`bumper-btn ${showActionMenu ? 'active' : ''}${activeGamepadButton === 'R1' ? ' gamepad-active' : ''}`}
         onClick={() => setShowActionMenu(!showActionMenu)}
         disabled={!activeSessionId}
         title="Actions menu"
@@ -207,7 +208,7 @@ export function ControllerBar() {
 
       {/* R2 - Voice push-to-talk */}
       <button
-        className={`bumper-btn voice-bumper ${isRecordingVoice ? 'recording' : ''}`}
+        className={`bumper-btn voice-bumper ${isRecordingVoice ? 'recording' : ''}${activeGamepadButton === 'R2' ? ' gamepad-active' : ''}`}
         onMouseDown={handleVoiceDown}
         onMouseUp={handleVoiceUp}
         onMouseLeave={() => { if (isRecordingVoice) handleVoiceUp() }}
