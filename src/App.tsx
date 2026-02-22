@@ -1,13 +1,14 @@
 import { useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { SessionTabs } from './components/SessionTabs'
-import { StatusDisplay } from './components/StatusDisplay'
+import { MinimalStatusBar } from './components/MinimalStatusBar'
 import { SessionView } from './components/SessionView'
 import { ControllerBar } from './components/ControllerBar'
-import { ActionMenu } from './components/ActionMenu'
+import { StartMenu } from './components/StartMenu'
+import { NewSessionDialog } from './components/NewSessionDialog'
+import { DirectoryBrowser } from './components/DirectoryBrowser'
 import { VoiceIndicator } from './components/VoiceIndicator'
+import { SessionToast } from './components/SessionToast'
 import { TextInput } from './components/TextInput'
-import { SettingsPanel } from './components/SettingsPanel'
 import { useSession } from './hooks/useSession'
 import { useKeyboard } from './hooks/useKeyboard'
 import { useGamepad } from './hooks/useGamepad'
@@ -32,18 +33,15 @@ function App() {
 
   return (
     <div className="app">
-      <div className="top-bar">
-        <SessionTabs />
-        <StatusDisplay />
-      </div>
+      <MinimalStatusBar />
       <SessionView />
       <TextInput />
-      <div className="controller-area">
-        <ActionMenu />
-        <ControllerBar />
-      </div>
+      <ControllerBar />
+      <StartMenu />
+      <NewSessionDialog />
+      <DirectoryBrowser />
       <VoiceIndicator />
-      <SettingsPanel />
+      <SessionToast />
     </div>
   )
 }

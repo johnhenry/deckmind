@@ -107,6 +107,19 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     }
   }, [setupTerminal])
 
+  // Blur terminal when overlay is shown so xterm.js stops capturing keyboard input.
+  // Re-focus when returning to terminal mode.
+  const uiMode = useAppStore((s) => s.uiMode)
+  useEffect(() => {
+    const term = terminalRef.current
+    if (!term) return
+    if (uiMode === 'terminal') {
+      term.focus()
+    } else {
+      term.blur()
+    }
+  }, [uiMode])
+
   // Re-fit when container size changes
   useEffect(() => {
     if (!containerRef.current || !fitAddonRef.current) return

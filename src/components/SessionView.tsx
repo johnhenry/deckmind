@@ -1,8 +1,9 @@
-import { useSession } from '../hooks/useSession'
+import { useAppStore } from '../stores/appStore'
 import { TerminalPane } from './TerminalPane'
+import { DraftOverlay } from './DraftOverlay'
 
 export function SessionView() {
-  const { activeSessionId, createSession } = useSession()
+  const { activeSessionId } = useAppStore()
 
   if (!activeSessionId) {
     return (
@@ -10,16 +11,8 @@ export function SessionView() {
         <div className="empty-state">
           <div className="logo">DECKMIND</div>
           <div className="subtitle">
-            AI Operator Console. Press + to create a session, or press any action button to begin.
+            AI Operator Console. Press Start to begin.
           </div>
-          <button
-            className="action-btn"
-            onClick={() => createSession()}
-            style={{ minWidth: 120 }}
-          >
-            <span className="icon">+</span>
-            <span className="label">New Session</span>
-          </button>
         </div>
       </div>
     )
@@ -28,6 +21,7 @@ export function SessionView() {
   return (
     <div className="main-content">
       <TerminalPane key={activeSessionId} sessionId={activeSessionId} />
+      <DraftOverlay />
     </div>
   )
 }

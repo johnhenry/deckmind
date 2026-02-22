@@ -16,6 +16,12 @@
 - [x] Session interrupt (SIGINT)
 - [x] `--dangerously-skip-permissions` to bypass trust dialog
 - [x] `CLAUDECODE` env var removal for nested session prevention
+- [x] Session resume via `--resume <id>` (parsed from xterm.js buffer on Claude exit)
+- [x] Session continue via `--continue` (restart with last conversation)
+- [x] Per-session launch flags stored in Rust backend (replayed on restart/resume)
+- [x] Git worktree isolation via `--worktree` flag (launch-only, filtered on resume/continue)
+- [x] New Session dialog with gamepad-navigable fields (name, directory, worktree, create)
+- [x] Filesystem directory browser for working directory selection
 
 ### Terminal
 - [x] xterm.js terminal emulator (full TUI rendering, colors, cursor positioning)
@@ -49,6 +55,11 @@
 - [x] Ctrl+Space for push-to-talk (hold to record, release to send)
 - [x] Free-text input bar with send button
 - [x] Direct typing into xterm.js terminal
+- [x] Native Steam Deck gamepad via hidraw (bypasses Steam Input's evdev grab)
+- [x] Full controller mapping: A=Send, B=Stop/Resume, Y=Continue, X=Keyboard, L1=CycleMode, R1=Escape, R2=Voice, Select=CycleSessions, Start=StartMenu, DPad=Arrows, R5=Tab, L3=ClearDraft, R3=ScrollBottom
+- [x] Start Menu (central hub): New Session, Resume, Sessions, Actions, Settings (model/effort cycling)
+- [x] Draft overlay for previewing queued text before sending
+- [x] Session toast notifications
 
 ### Configuration
 - [x] YAML config file at `~/.deckmind/config.yaml`
@@ -56,7 +67,9 @@
 - [x] Configurable: claude path, safety mode, whisper model, theme, working dir, voice toggle
 - [x] Configurable button mappings (keyboard + gamepad)
 - [x] Get/update config via Tauri commands
-- [x] Settings panel UI component
+- [x] Settings panel via Start Menu (model + effort cycling)
+- [x] Default model setting (sonnet/opus/haiku) applied to new sessions
+- [x] Default effort setting (low/medium/high) applied to new sessions
 
 ### Safety Modes
 - [x] 4 safety modes: Observe, Suggest, Confirm (default), Auto
@@ -75,7 +88,6 @@
 ### High Priority
 
 - [ ] **Session isolation via `--session-id`** - Pass unique session IDs to Claude Code so multiple sessions don't share conversation state (emdash pattern)
-- [ ] **Session resume (`-c -r`)** - Resume previous Claude Code conversations instead of starting fresh every time
 - [ ] **PATH fixing at startup** - GUI apps don't inherit shell PATH; need to detect Homebrew, nvm, npm global paths so `claude` CLI is findable (emdash does this aggressively)
 - [ ] **Provider status detection** - Check if Claude Code CLI is installed and available at startup, show clear error if not (emdash's `ConnectionsService`)
 - [ ] **Whisper model auto-download** - Prompt user or auto-download model on first voice use instead of requiring manual curl
@@ -89,7 +101,7 @@
 - [ ] **SQLite database** - Replace in-memory storage with persistent SQLite (projects, tasks, conversations, messages) using Drizzle ORM or rusqlite
 - [ ] **Project concept** - Associate sessions with project directories; remember per-project settings and history
 - [ ] **Multi-provider support** - Provider registry pattern from emdash; support Codex, Gemini, Amp, Goose, etc. alongside Claude Code
-- [ ] **Git worktree per task** - Isolate parallel agent work in separate git worktrees so agents never interfere with each other
+- [ ] **Git worktree per task (auto)** - Automatically create worktrees for parallel agent work (currently manual toggle in New Session dialog)
 - [ ] **Diff viewer** - Monaco-based side-by-side diff viewer for reviewing agent file changes before accepting
 - [ ] **Line comments on diffs** - Annotate specific lines in the diff view, inject comments back to the agent
 - [ ] **File changes panel** - Sidebar showing which files the agent modified, with git status
@@ -100,27 +112,8 @@
 
 ### Medium Priority — UX
 
-- [ ] **Gamepad input (evdev/SDL or Gamepad API)** - Web Gamepad API for gamepad detection and input polling in the webview
-- [ ] **Controller mapping system** - Full Steam Deck / gamepad layout:
-  - R1: Open semantic action menu (Context, Explain, Fix, Continue, Plan, Summarize)
-  - R2 (hold): Push-to-talk voice recording
-  - L1: Cycle safety modes (Observe > Suggest > Confirm > Auto)
-  - A: Submit / confirm / send message
-  - B: Stop / interrupt / cancel / back
-  - X: Quick Fix (direct shortcut)
-  - Y: Continue (direct shortcut)
-  - D-pad Up/Down: Switch sessions
-  - D-pad Left/Right: Navigate UI panels
-  - Left Stick: Scroll terminal
-  - Select: Open settings
-  - Start: New session
-  - Left Trackpad: Mouse cursor emulation
-  - Right Trackpad: Text input cursor / scroll
-- [ ] **Action menu overlay** - R1-activated radial or dropdown menu for picking semantic actions via D-pad or face buttons
 - [ ] **Command palette** - Quick-access command palette (Cmd+K / controller combo) for navigation and actions
-- [ ] **Settings panel wiring** - SettingsPanel component exists but form inputs are not connected to config read/write
-- [ ] **Session naming and renaming** - Sessions get auto-generated names; allow user-provided names
-- [ ] **Working directory picker** - Allow selecting working directory per session from the UI
+- [ ] **Session renaming** - Allow renaming sessions after creation
 - [ ] **Process health monitoring** - Detect when Claude subprocess crashes and offer restart; auto-respawn shell after agent exits
 - [ ] **Confirm mode approval UI** - When in Confirm safety mode, show proposed commands and approve/reject buttons
 - [ ] **Storage persistence to disk** - memory.json and session.log written to disk (currently in-memory only)

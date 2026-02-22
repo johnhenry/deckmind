@@ -10,6 +10,25 @@ export type SemanticAction =
 
 export type SafetyMode = 'observe' | 'suggest' | 'confirm' | 'auto'
 
+export type UIMode = 'terminal' | 'startMenu' | 'newSession' | 'dirBrowser'
+
+export interface DirEntry {
+  name: string
+  path: string
+  is_dir: boolean
+}
+
+export interface StartMenuItem {
+  id: string
+  type: 'newSession' | 'resumeSession' | 'session' | 'action' | 'setting'
+  label: string
+  sublabel?: string
+  sessionId?: string
+  actionId?: SemanticAction
+  settingKey?: string
+  value?: string
+}
+
 export interface SessionInfo {
   id: string
   name: string
@@ -36,6 +55,8 @@ export interface AppConfig {
   button_mappings: ButtonMapping[]
   whisper_model: string
   default_working_dir: string | null
+  default_model: string | null
+  default_effort: string | null
   voice_enabled: boolean
   theme: string
 }

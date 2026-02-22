@@ -1,20 +1,14 @@
 import { useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../stores/appStore'
+import { buildClaudeCommand } from '../utils/buildClaudeCommand'
 
 // Write data directly to the PTY, bypassing xterm.js.
-// xterm.js terminal.input() bundles all bytes into one chunk which
-// Claude Code's TUI can misinterpret as paste (newlines become literal
-// instead of triggering submit). Using pty_write keeps us on the same
-// Rust path that xterm.js onData uses, without the batching issue.
 async function ptyWrite(sessionId: string, data: string) {
   await invoke('pty_write', { sessionId, data })
 }
 
 // Send text then Enter as two separate PTY writes.
-// The delay ensures Claude Code processes the text first (adds it to its
-// input buffer) before receiving the carriage return as a distinct "Enter"
-// keystroke, rather than treating text+CR as a single pasted block.
 async function ptyWriteAndSubmit(sessionId: string, text: string) {
   await ptyWrite(sessionId, text)
   await new Promise((r) => setTimeout(r, 50))
@@ -26,16 +20,23 @@ export function ControllerBar() {
     isRecordingVoice,
     activeSessionId,
     setRecordingVoice,
-    showActionMenu,
-    setShowActionMenu,
     draftText,
     setDraftText,
-    sessionEnded,
-    claudeResumeId,
+    sessions,
+    sessionStates,
     setSessionEnded,
     setClaudeResumeId,
+    setActiveSession,
+    showToast,
     activeGamepadButton,
+    uiMode,
+    setUIMode,
   } = useAppStore()
+
+  // Derive per-session state
+  const activeState = activeSessionId ? sessionStates[activeSessionId] : undefined
+  const sessionEnded = activeState?.ended ?? false
+  const claudeResumeId = activeState?.resumeId ?? null
 
   // L1: Send Shift+Tab (ESC [ Z) to cycle Claude's permission mode
   const cycleSafetyMode = useCallback(async () => {
@@ -70,25 +71,21 @@ export function ControllerBar() {
   }, [activeSessionId])
 
   // B (when session ended): Type the claude command into the shell to restart/resume.
-  // The shell is still alive — we just type the command like a user would.
-  // No process respawn, no session picker, no timing hacks.
   const handleRestart = useCallback(async () => {
     if (!activeSessionId) return
     try {
       const claudePath = await invoke<string>('get_claude_path', {
         sessionId: activeSessionId,
       })
+      const flags = await invoke<string>('get_session_flags', {
+        sessionId: activeSessionId,
+      })
+      const cmd = buildClaudeCommand(claudePath, flags, {
+        resumeId: claudeResumeId ?? undefined,
+      })
 
-      let cmd = `${claudePath} --dangerously-skip-permissions`
-      if (claudeResumeId) {
-        cmd += ` --resume ${claudeResumeId}`
-      }
-      // Chain invisible OSC sentinel so the reader thread detects Claude exit.
-      // printf emits an OSC escape sequence that xterm.js silently discards.
-      cmd += `; printf '\\033]666;\\007'`
-
-      setSessionEnded(false)
-      setClaudeResumeId(null)
+      setSessionEnded(activeSessionId, false)
+      setClaudeResumeId(activeSessionId, null)
 
       await ptyWrite(activeSessionId, cmd + '\r')
     } catch (e) {
@@ -96,15 +93,19 @@ export function ControllerBar() {
     }
   }, [activeSessionId, claudeResumeId, setSessionEnded, setClaudeResumeId])
 
-  // Menu: Send Escape
-  const handleMenu = useCallback(async () => {
-    if (!activeSessionId) return
-    try {
-      await ptyWrite(activeSessionId, '\x1b')
-    } catch (e) {
-      console.error('Failed to send escape:', e)
-    }
-  }, [activeSessionId])
+  // Select: Cycle sessions
+  const handleCycleSession = useCallback(() => {
+    if (sessions.length <= 1) return
+    const currentIdx = sessions.findIndex((s) => s.id === activeSessionId)
+    const next = sessions[(currentIdx + 1) % sessions.length]
+    setActiveSession(next.id)
+    showToast(next.name)
+  }, [sessions, activeSessionId, setActiveSession, showToast])
+
+  // Start: Toggle Start menu
+  const handleStart = useCallback(() => {
+    setUIMode(uiMode === 'startMenu' ? 'terminal' : 'startMenu')
+  }, [uiMode, setUIMode])
 
   // R2: Voice push-to-talk
   const handleVoiceDown = useCallback(async () => {
@@ -146,15 +147,26 @@ export function ControllerBar() {
 
       <div className="controller-divider" />
 
-      {/* Menu - Send Escape */}
+      {/* Select - Cycle sessions */}
       <button
-        className={`controller-btn menu-btn${activeGamepadButton === 'Menu' ? ' gamepad-active' : ''}`}
-        onClick={handleMenu}
-        disabled={!activeSessionId}
-        title="Escape"
+        className={`controller-btn menu-btn${activeGamepadButton === 'Select' ? ' gamepad-active' : ''}`}
+        onClick={handleCycleSession}
+        disabled={sessions.length <= 1}
+        title="Cycle sessions"
+      >
+        <span className="glyph">{'\u21C6'}</span>
+      </button>
+
+      <div className="controller-divider" />
+
+      {/* Start - Toggle Start menu */}
+      <button
+        className={`controller-btn start-btn${uiMode === 'startMenu' ? ' active' : ''}${activeGamepadButton === 'Start' ? ' gamepad-active' : ''}`}
+        onClick={handleStart}
+        title="Start menu"
       >
         <span className="glyph">{'\u2630'}</span>
-        <span className="label">Menu</span>
+        <span className="label">Start</span>
       </button>
 
       <div className="controller-divider" />
@@ -194,17 +206,6 @@ export function ControllerBar() {
       </div>
 
       <div className="controller-divider" />
-
-      {/* R1 - Action menu toggle */}
-      <button
-        className={`bumper-btn ${showActionMenu ? 'active' : ''}${activeGamepadButton === 'R1' ? ' gamepad-active' : ''}`}
-        onClick={() => setShowActionMenu(!showActionMenu)}
-        disabled={!activeSessionId}
-        title="Actions menu"
-      >
-        <span className="bumper-label">R1</span>
-        <span className="bumper-text">Actions{showActionMenu ? ' \u25B4' : ' \u25BE'}</span>
-      </button>
 
       {/* R2 - Voice push-to-talk */}
       <button

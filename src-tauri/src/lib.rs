@@ -57,6 +57,9 @@ pub fn run() {
             commands::pty_write_bytes,
             commands::build_action_prompt,
             commands::get_claude_path,
+            commands::get_session_flags,
+            commands::list_directory,
+            commands::get_home_dir,
         ])
         .setup(|app| {
             log::info!("DeckMind initialized");
@@ -83,6 +86,7 @@ mod commands {
     use crate::config::SafetyMode;
     use crate::context::ContextCollector;
     use crate::session::SessionInfo;
+    use serde::Serialize;
     use tauri::Emitter;
 
     #[tauri::command]
@@ -91,13 +95,14 @@ mod commands {
         state: tauri::State<'_, AppState>,
         name: Option<String>,
         working_dir: Option<String>,
+        extra_flags: Option<String>,
     ) -> Result<SessionInfo, String> {
         let mut manager = state.session_manager.lock().await;
         let config = state.config.lock().await;
         let claude_path = config.claude_path.clone();
         drop(config);
         manager
-            .create_session(name, working_dir, &claude_path, &app)
+            .create_session(name, working_dir, &claude_path, extra_flags, &app)
             .await
             .map_err(|e| e.to_string())
     }
@@ -337,5 +342,87 @@ mod commands {
         let context = ContextCollector::collect().await;
         let prompt = ActionRouter::build_prompt(&action, &context);
         Ok(prompt)
+    }
+
+    /// Get the extra launch flags stored for a session so the frontend
+    /// can include them when restarting/continuing claude.
+    #[tauri::command]
+    pub async fn get_session_flags(
+        state: tauri::State<'_, AppState>,
+        session_id: String,
+    ) -> Result<String, String> {
+        let manager = state.session_manager.lock().await;
+        manager
+            .get_launch_flags(&session_id)
+            .map_err(|e| e.to_string())
+    }
+
+    #[derive(Serialize)]
+    pub struct DirEntry {
+        name: String,
+        path: String,
+        is_dir: bool,
+    }
+
+    /// List directory contents for the filesystem browser.
+    /// Returns only directories (sorted case-insensitive), with `..` prepended.
+    /// Hidden entries (starting with `.`) are filtered out.
+    /// Runs on a blocking thread to avoid stalling the Tokio runtime.
+    #[tauri::command]
+    pub async fn list_directory(path: Option<String>) -> Result<Vec<DirEntry>, String> {
+        tokio::task::spawn_blocking(move || {
+            let dir = match path {
+                Some(p) if !p.is_empty() => std::path::PathBuf::from(p),
+                _ => dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")),
+            };
+
+            let read_dir = std::fs::read_dir(&dir)
+                .map_err(|e| format!("Cannot read {}: {}", dir.display(), e))?;
+
+            let mut entries = Vec::new();
+
+            // Prepend parent directory entry unless at root
+            if let Some(parent) = dir.parent() {
+                entries.push(DirEntry {
+                    name: "..".to_string(),
+                    path: parent.to_string_lossy().to_string(),
+                    is_dir: true,
+                });
+            }
+
+            let mut dirs_list = Vec::new();
+
+            for entry in read_dir.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                // Filter hidden entries
+                if name.starts_with('.') {
+                    continue;
+                }
+                // Only include directories (this is a directory picker)
+                let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                if !is_dir {
+                    continue;
+                }
+                let full_path = entry.path().to_string_lossy().to_string();
+                dirs_list.push(DirEntry { name, path: full_path, is_dir: true });
+            }
+
+            // Sort case-insensitive
+            dirs_list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+            entries.extend(dirs_list);
+
+            Ok(entries)
+        })
+        .await
+        .map_err(|e| format!("Task failed: {}", e))?
+    }
+
+    /// Get the user's home directory path.
+    #[tauri::command]
+    pub async fn get_home_dir() -> Result<String, String> {
+        dirs::home_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .ok_or_else(|| "Cannot determine home directory".to_string())
     }
 }

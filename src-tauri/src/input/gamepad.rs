@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Read;
 use std::os::unix::io::AsRawFd;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 /// Steam Deck controller USB IDs (Valve, product 0x1205).
@@ -34,6 +34,14 @@ const BUTTONS: &[(u32, &str)] = &[
     (1 << 22, "L3"),
     (1 << 26, "R3"),
 ];
+
+/// Right stick Y axis: bytes 54-55, signed 16-bit LE.
+/// Verified against Linux kernel hid-steam.c (steam_do_deck_input_event):
+///   ABS_RX = data+52, ABS_RY = -(data+54)
+/// Kernel negates Y so positive = up; we keep raw HID convention (positive = down).
+const STICK_DEADZONE: i16 = 8000;
+/// Throttle stick events to ~20Hz (50ms between emissions).
+const STICK_EMIT_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Scan /sys/class/hidraw/ to find the hidraw device for the Steam Deck controller,
 /// then verify it streams 64-byte reports. Returns the device path (e.g. "/dev/hidraw2").
@@ -85,16 +93,10 @@ fn find_deck_hidraw() -> Option<String> {
 /// Spawn a background thread that reads the Steam Deck controller via hidraw
 /// and emits Tauri events to the frontend.
 ///
-/// The Steam Deck's controller is managed by Steam Input, which grabs exclusive
-/// access to evdev — so gilrs/SDL/evdev see nothing in Desktop Mode. But the
-/// raw HID reports on hidraw are still readable.
-///
 /// Emits:
 /// - `gamepad-button` with `{ button: String, pressed: bool }`
+/// - `gamepad-stick` with `{ stick: String, y: i16 }`
 /// - `gamepad-connected` with `{ name: String }`
-///
-/// Graceful fallback: if no Steam Deck controller is found, logs a warning
-/// and returns without crashing.
 pub fn start_gamepad_thread(app_handle: AppHandle) {
     thread::spawn(move || {
         let dev_path = match find_deck_hidraw() {
@@ -129,6 +131,7 @@ pub fn start_gamepad_thread(app_handle: AppHandle) {
         );
 
         let mut prev_buttons: u32 = 0;
+        let mut last_stick_emit = Instant::now();
         let mut buf = [0u8; 64];
 
         loop {
@@ -152,6 +155,22 @@ pub fn start_gamepad_thread(app_handle: AppHandle) {
                             }
                         }
                         prev_buttons = buttons;
+                    }
+
+                    // Right stick Y axis — bytes 54-55, signed i16 LE
+                    let stick_y = i16::from_le_bytes([buf[54], buf[55]]);
+                    if stick_y.abs() > STICK_DEADZONE {
+                        let now = Instant::now();
+                        if now.duration_since(last_stick_emit) >= STICK_EMIT_INTERVAL {
+                            last_stick_emit = now;
+                            let _ = app_handle.emit(
+                                "gamepad-stick",
+                                serde_json::json!({
+                                    "stick": "right",
+                                    "y": stick_y,
+                                }),
+                            );
+                        }
                     }
                 }
                 Err(e) => {

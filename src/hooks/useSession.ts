@@ -15,6 +15,7 @@ export function useSession() {
     setBusy,
     setSessionEnded,
     setClaudeResumeId,
+    clearSessionState,
   } = useAppStore()
 
   const setupListeners = useCallback(async () => {
@@ -23,13 +24,12 @@ export function useSession() {
 
     // Claude process exited but shell is still alive.
     // Parse the xterm.js buffer for a resume ID (already ANSI-free).
-    await listen<{ session_id: string }>('claude-exited', (_event) => {
+    await listen<{ session_id: string }>('claude-exited', (event) => {
+      const sessionId = event.payload.session_id
       setBusy(false)
-      setSessionEnded(true)
+      setSessionEnded(sessionId, true)
 
       // Read the xterm.js terminal buffer to find the resume ID.
-      // The buffer text is already rendered (ANSI codes stripped by xterm.js),
-      // so we get clean text — no regex hacks for escape sequences.
       const term = useAppStore.getState().terminalInstance
       if (term) {
         const buffer = term.buffer.active
@@ -37,7 +37,7 @@ export function useSession() {
           const line = buffer.getLine(i)?.translateToString(true) || ''
           const match = line.match(/claude\s+--resume\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
           if (match) {
-            setClaudeResumeId(match[1])
+            setClaudeResumeId(sessionId, match[1])
             break
           }
         }
@@ -45,9 +45,9 @@ export function useSession() {
     })
 
     // Shell itself exited — full session teardown
-    await listen<{ session_id: string }>('session-done', (_event) => {
+    await listen<{ session_id: string }>('session-done', (event) => {
       setBusy(false)
-      setSessionEnded(true)
+      setSessionEnded(event.payload.session_id, true)
     })
 
     // Message sent acknowledgment
@@ -66,16 +66,21 @@ export function useSession() {
   }, [setSessions])
 
   const createSession = useCallback(
-    async (name?: string, workingDir?: string) => {
+    async (name?: string, workingDir?: string, extraFlags?: string) => {
       try {
         const session = await invoke<SessionInfo>('create_session', {
           name: name || null,
           workingDir: workingDir || null,
+          extraFlags: extraFlags || null,
         })
         await refreshSessions()
         setActiveSession(session.id)
-        setSessionEnded(false)
-        setClaudeResumeId(null)
+        // Track recently used directories
+        if (workingDir) {
+          useAppStore.getState().addRecentDir(workingDir)
+        } else if (session.working_dir) {
+          useAppStore.getState().addRecentDir(session.working_dir)
+        }
         return session
       } catch (e) {
         console.error('Failed to create session:', e)
@@ -89,6 +94,7 @@ export function useSession() {
     async (sessionId: string) => {
       try {
         await invoke('close_session', { sessionId })
+        clearSessionState(sessionId)
         await refreshSessions()
         if (activeSessionId === sessionId) {
           const remaining = sessions.filter((s) => s.id !== sessionId)
@@ -98,7 +104,7 @@ export function useSession() {
         console.error('Failed to close session:', e)
       }
     },
-    [refreshSessions, activeSessionId, sessions, setActiveSession]
+    [refreshSessions, activeSessionId, sessions, setActiveSession, clearSessionState]
   )
 
   const sendMessage = useCallback(
@@ -106,7 +112,6 @@ export function useSession() {
       if (!activeSessionId) return
       setBusy(true)
       try {
-        // Write directly to PTY (xterm.js handles display)
         await invoke('pty_write', {
           sessionId: activeSessionId,
           data: message + '\n',

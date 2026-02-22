@@ -15,7 +15,7 @@ const KEY_ACTION_MAP: Record<string, SemanticAction> = {
 
 export function useKeyboard() {
   const { sendAction } = useActions()
-  const { setRecordingVoice, isRecordingVoice, activeSessionId, setBusy, setDraftText, draftText, setShowActionMenu, showActionMenu } = useAppStore()
+  const { setRecordingVoice, isRecordingVoice, activeSessionId, setBusy, setDraftText, draftText } = useAppStore()
 
   const handleVoiceStop = useCallback(async () => {
     setRecordingVoice(false)
@@ -37,6 +37,7 @@ export function useKeyboard() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       const inTextInput = target.tagName === 'TEXTAREA' || target.tagName === 'INPUT'
+      const uiMode = useAppStore.getState().uiMode
 
       const parts: string[] = []
       if (e.ctrlKey || e.metaKey) parts.push('ctrl')
@@ -50,11 +51,11 @@ export function useKeyboard() {
 
       const combo = parts.join('+')
 
-      // Escape: close action menu if open, otherwise interrupt
+      // Escape: close menus or interrupt
       if (key === 'escape') {
         e.preventDefault()
-        if (showActionMenu) {
-          setShowActionMenu(false)
+        if (uiMode === 'startMenu' || uiMode === 'newSession') {
+          useAppStore.getState().setUIMode('terminal')
         } else if (activeSessionId) {
           invoke('pty_write', { sessionId: activeSessionId, data: '\x03' }).catch((err) =>
             console.error('Failed to interrupt:', err)
@@ -74,6 +75,9 @@ export function useKeyboard() {
         }
         return
       }
+
+      // When not in terminal mode, suppress most shortcuts
+      if (uiMode !== 'terminal') return
 
       // Don't intercept other shortcuts when focused in text input
       if (inTextInput) return
@@ -115,5 +119,5 @@ export function useKeyboard() {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [sendAction, isRecordingVoice, setRecordingVoice, handleVoiceStop, showActionMenu, setShowActionMenu, activeSessionId])
+  }, [sendAction, isRecordingVoice, setRecordingVoice, handleVoiceStop, activeSessionId])
 }

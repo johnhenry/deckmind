@@ -23,11 +23,14 @@ Sessions spawn the user's **shell** (`$SHELL`, fallback `bash`), not Claude dire
 
 ```
 Session lifecycle:
-  create  → spawn bash → type "claude --dangerously-skip-permissions; printf '\033]666;\007'"
-  restart → type the claude command again into the same shell
-  resume  → type "claude --dangerously-skip-permissions --resume <id>; printf '\033]666;\007'"
-  close   → kill the shell process (full teardown)
+  create    → spawn bash → type "claude --dangerously-skip-permissions [flags]; printf '\033]666;\007'"
+  restart   → type the claude command again into the same shell
+  resume    → type "claude --dangerously-skip-permissions --resume <id> [flags]; printf '\033]666;\007'"
+  continue  → type "claude --dangerously-skip-permissions --continue [flags]; printf '\033]666;\007'"
+  close     → kill the shell process (full teardown)
 ```
+
+Per-session flags (`--worktree`, `--model`, `--effort`, `--continue`) are stored in the Rust `Session` struct so restarts include the same flags. Launch-only flags (`--worktree`) are filtered out on resume/continue via the shared `buildClaudeCommand()` helper (`src/utils/buildClaudeCommand.ts`).
 
 **Exit detection:** An invisible OSC escape sequence (`\033]666;\007`) is chained after the claude command. The Rust reader thread detects it in the raw byte stream and emits a `claude-exited` Tauri event. xterm.js silently discards the OSC — the user sees nothing.
 
@@ -62,9 +65,11 @@ bit 12=Select  13=Steam  14=Start  15=L5  16=R5
 bit 17=LeftPadClick  18=RightPadClick  22=L3  26=R3
 ```
 
-The frontend `useGamepad` hook listens for these events and dispatches actions. It uses `useAppStore.getState()` snapshots (not hook state) to avoid stale closures. Two modes:
-- **Normal mode:** A=Send, B=Stop/Resume, L1=CycleMode, R1=ToggleMenu, R2=Voice(hold), Select=Escape, Start=Settings, DPad=Arrows, X/Y=semantic actions from config
-- **Menu mode (R1 open):** X=Context, Y=Explain, A=Fix, DPadUp=Plan, DPadDown=Summarize, B=Close
+The frontend `useGamepad` hook listens for these events and dispatches actions. It uses `useAppStore.getState()` snapshots (not hook state) to avoid stale closures. Multiple UI modes:
+- **Terminal mode:** A=Send, B=Stop/Resume, Y=Continue(ended), R1=Escape, L1=CycleMode, R2=Voice(hold), Select=CycleSessions, Start=StartMenu, X=Keyboard, DPad=Arrows
+- **Start menu mode:** DPad=Navigate, A=Select, X=CloseSession, B/Start=Close
+- **New session mode:** DPad=Navigate fields, A=Create, Y=Browse(dir field)/Continue(create field), B=Back
+- **Dir browser mode:** DPad=Navigate, A=Enter dir, X=Select dir, B=Up, Start=Cancel
 
 ### Resume ID Parsing
 
@@ -75,24 +80,27 @@ When Claude exits and offers a resume option, the resume ID is parsed from the *
 ```
 src/                              # React frontend
   components/
-    ActionMenu.tsx                  # R1 semantic action popup
-    ControllerBar.tsx               # Bottom HUD (L1/R1/R2/A/B/Menu buttons)
-    SessionTabs.tsx                 # Multi-session tab bar
-    SessionView.tsx                 # Session container
-    SettingsPanel.tsx               # Config UI modal
-    StatusDisplay.tsx               # Safety mode badge
+    ControllerBar.tsx               # Bottom HUD (L1/Select/Start/B/A/R2 buttons)
+    DirectoryBrowser.tsx            # Gamepad-navigable filesystem browser overlay
+    DraftOverlay.tsx                # Ghost draft preview in terminal area
+    MinimalStatusBar.tsx            # Top bar (session name, dir, safety badge)
+    NewSessionDialog.tsx            # Session creation (name, dir, worktree, continue)
+    SessionToast.tsx                # Auto-dismiss toast notification
+    SessionView.tsx                 # Session container (empty state or terminal)
+    StartMenu.tsx                   # Central hub (sessions, actions, settings)
     TerminalPane.tsx                # xterm.js terminal + PTY I/O
     TextInput.tsx                   # Auto-resizing text input bar
     VoiceIndicator.tsx              # Recording overlay
   hooks/
-    useActions.ts                   # Builds action prompts, populates draft text
     useGamepad.ts                   # Physical gamepad → action dispatch via Tauri events
     useKeyboard.ts                  # Global keyboard shortcuts + arrow key forwarding
     useSession.ts                   # Session CRUD + event listeners + buffer parsing
   stores/
     appStore.ts                     # Zustand store (sessions, UI state, terminal instance)
   types/
-    index.ts                        # SemanticAction, SafetyMode, SessionInfo, AppConfig
+    index.ts                        # SemanticAction, SafetyMode, SessionInfo, DirEntry, AppConfig
+  utils/
+    buildClaudeCommand.ts           # Shared command builder (filters --worktree on resume)
   styles/
     global.css                      # Cyber theme (dark blue, cyan accents)
 
@@ -124,25 +132,32 @@ src-tauri/src/                    # Rust backend
 | File | Purpose |
 |------|---------|
 | `src-tauri/src/session/process.rs` | Shell wrapper, PTY reader thread, OSC sentinel detection |
-| `src-tauri/src/session/manager.rs` | Session CRUD, stores claude_path per session |
-| `src-tauri/src/lib.rs` | All Tauri commands (create_session, pty_write, build_action_prompt, etc.) |
+| `src-tauri/src/session/manager.rs` | Session CRUD, stores claude_path + launch_flags per session |
+| `src-tauri/src/lib.rs` | All Tauri commands (create_session, list_directory, pty_write, etc.) |
 | `src/components/ControllerBar.tsx` | Stop/Start/Resume button logic, all controller buttons |
+| `src/components/DirectoryBrowser.tsx` | Gamepad-navigable filesystem browser overlay |
+| `src/components/NewSessionDialog.tsx` | Session creation dialog (name, dir, worktree, continue) |
+| `src/components/StartMenu.tsx` | Central hub (sessions, actions, model/effort/voice settings) |
 | `src/hooks/useSession.ts` | Event listeners, xterm.js buffer parsing for resume ID |
+| `src/hooks/useGamepad.ts` | Gamepad event → action dispatch (terminal, startMenu, newSession, dirBrowser) |
 | `src/stores/appStore.ts` | Central Zustand store |
+| `src/utils/buildClaudeCommand.ts` | Shared command builder (used by 4 restart/resume/continue sites) |
 | `src/components/TerminalPane.tsx` | xterm.js setup, WebGL, resize handling |
 | `src-tauri/src/input/gamepad.rs` | Hidraw polling thread, Steam Deck HID button decoding |
-| `src/hooks/useGamepad.ts` | Gamepad event → action dispatch (normal + menu mode) |
 
 ## Tauri Commands
 
 | Command | Purpose |
 |---------|---------|
-| `create_session` | Spawn shell + Claude PTY |
+| `create_session` | Spawn shell + Claude PTY (accepts `extra_flags`) |
 | `close_session` | Kill shell process |
 | `pty_write` | Write string data to PTY |
 | `pty_write_bytes` | Write raw bytes to PTY |
 | `build_action_prompt` | Build prompt from action + context (returns string) |
 | `get_claude_path` | Get claude CLI path for a session (for restart commands) |
+| `get_session_flags` | Get stored launch flags for a session (for restart/continue) |
+| `list_directory` | List directories in a path (for filesystem browser) |
+| `get_home_dir` | Get user's home directory path |
 | `interrupt_session` | Send Ctrl+C |
 | `start_voice_recording` / `stop_voice_recording` | Voice capture + transcription |
 | `get_config` / `update_config` | Config CRUD |
@@ -167,18 +182,44 @@ Actions populate the text input bar (draft text) for user review before sending:
 
 Works with both on-screen clicks and physical Steam Deck buttons (via hidraw).
 
-| Button | Normal Mode | Menu Mode (R1 open) | Session Ended |
-|--------|------------|---------------------|---------------|
-| **A** | Send draft text | Fix action | Send |
-| **B** | Stop (Ctrl+C) | Close menu | Start or Resume |
-| **X** | Context (from config) | Context action | — |
-| **Y** | Explain (from config) | Explain action | — |
-| **L1** | Cycle safety mode (Shift+Tab) | — | — |
-| **R1** | Toggle action menu | Close menu | — |
-| **R2** | Push-to-talk voice (hold) | — | — |
-| **Select** | Send Escape | — | — |
-| **Start** | Toggle settings | — | — |
-| **DPad** | Arrow keys to PTY | Up=Plan, Down=Summarize | — |
+### Terminal Mode
+
+| Button | Running | Session Ended |
+|--------|---------|---------------|
+| **A** | Send draft text | Send draft text |
+| **B** | Stop (Ctrl+C) | Start or Resume (with stored flags) |
+| **Y** | — | Continue last conversation (`--continue`) |
+| **X** | Toggle on-screen keyboard | — |
+| **L1** | Cycle safety mode (Shift+Tab) | — |
+| **R1** | Send Escape to PTY | — |
+| **R2** | Push-to-talk voice (hold) | — |
+| **Select** | Cycle sessions (with toast) | — |
+| **Start** | Open Start Menu | — |
+| **DPad** | Arrow keys to PTY | — |
+| **R5** | Send Tab | — |
+| **L3** | Clear draft text | — |
+| **R3** | Scroll to bottom | — |
+
+### New Session Dialog
+
+| Button | Action |
+|--------|--------|
+| **DPad Up/Down** | Move between fields (name, directory, worktree, create) |
+| **DPad Left/Right** | Cycle recent dirs (field 1) / Toggle worktree (field 2) |
+| **Y** | Browse filesystem (field 1) / Create with `--continue` (field 3) |
+| **A** | Create session (field 3) |
+| **B** | Back to Start Menu |
+| **R2** | Voice-to-text for session name |
+
+### Directory Browser
+
+| Button | Action |
+|--------|--------|
+| **DPad Up/Down** | Navigate entries |
+| **A** | Enter directory |
+| **X** | Select current directory |
+| **B** | Go up one level |
+| **Start** | Cancel, return to new session dialog |
 
 ## Build & Run
 
@@ -211,6 +252,8 @@ whisper_model: "base.en"       # Whisper model name
 voice_enabled: true
 theme: "cyber"
 default_working_dir: null      # Optional default cwd for new sessions
+default_model: null            # Optional: sonnet | opus | haiku (passed as --model)
+default_effort: null           # Optional: low | medium | high (passed as --effort)
 ```
 
 ## Development Notes

@@ -64,6 +64,7 @@ impl ClaudeProcess {
     pub fn spawn(
         claude_path: &str,
         working_dir: Option<&str>,
+        extra_flags: &str,
         session_id: String,
         app_handle: AppHandle,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -100,10 +101,18 @@ impl ClaudeProcess {
         // Build the initial command to launch Claude inside the shell.
         // The invisible OSC sentinel fires when Claude exits, letting us
         // detect exit without PTY EOF and without any visible output.
-        let launch_cmd = format!(
-            "{} --dangerously-skip-permissions; printf '\\033]666;\\007'\r",
-            claude_path
-        );
+        let flags_str = extra_flags.trim();
+        let launch_cmd = if flags_str.is_empty() {
+            format!(
+                "{} --dangerously-skip-permissions; printf '\\033]666;\\007'\r",
+                claude_path
+            )
+        } else {
+            format!(
+                "{} --dangerously-skip-permissions {}; printf '\\033]666;\\007'\r",
+                claude_path, flags_str
+            )
+        };
 
         // Send the launch command to the shell after a brief delay
         // to let the shell fully initialize.

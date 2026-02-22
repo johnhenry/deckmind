@@ -47,6 +47,12 @@ pub struct AppConfig {
     #[serde(default)]
     pub default_working_dir: Option<String>,
 
+    #[serde(default)]
+    pub default_model: Option<String>,
+
+    #[serde(default)]
+    pub default_effort: Option<String>,
+
     #[serde(default = "default_true")]
     pub voice_enabled: bool,
 
@@ -147,6 +153,8 @@ impl Default for AppConfig {
             button_mappings: default_button_mappings(),
             whisper_model: default_whisper_model(),
             default_working_dir: None,
+            default_model: None,
+            default_effort: None,
             voice_enabled: true,
             theme: default_theme(),
         }
