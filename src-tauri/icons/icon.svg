@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#0a0e17"/>
+  <rect x="32" y="32" width="448" height="448" rx="48" fill="none" stroke="#38bdf8" stroke-width="4"/>
+  <text x="256" y="280" text-anchor="middle" font-family="monospace" font-size="160" font-weight="bold" fill="#38bdf8">DM</text>
+  <circle cx="256" cy="400" r="16" fill="#34d399"/>
+</svg>

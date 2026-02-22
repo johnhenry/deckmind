@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui-org/nicegui/main/examples/tauri/src-tauri/gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "DeckMind default capabilities",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "shell:allow-execute",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit"
+  ]
+}
