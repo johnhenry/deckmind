@@ -10,7 +10,7 @@ export type SemanticAction =
 
 export type SafetyMode = 'observe' | 'suggest' | 'confirm' | 'auto'
 
-export type UIMode = 'terminal' | 'startMenu' | 'newSession' | 'dirBrowser' | 'modelManager'
+export type UIMode = 'terminal' | 'startMenu' | 'newSession' | 'dirBrowser' | 'modelManager' | 'remapper'
 
 export interface DirEntry {
   name: string

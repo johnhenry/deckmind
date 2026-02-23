@@ -37,9 +37,18 @@ export function TextInput() {
 
   // Send text then Enter as two separate PTY writes so Claude Code's TUI
   // processes the text first, then receives CR as a distinct "Enter" keystroke.
+  // If draft is empty, send bare Enter to submit whatever is in Claude's inner input.
   const handleSend = useCallback(async () => {
+    if (!activeSessionId) return
     const text = draftText.trim()
-    if (!text || !activeSessionId) return
+    if (!text) {
+      try {
+        await invoke('pty_write', { sessionId: activeSessionId, data: '\r' })
+      } catch (e) {
+        console.error('Failed to send enter:', e)
+      }
+      return
+    }
     try {
       await invoke('pty_write', { sessionId: activeSessionId, data: text })
       await new Promise((r) => setTimeout(r, 50))

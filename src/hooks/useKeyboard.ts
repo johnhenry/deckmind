@@ -1,10 +1,12 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useActions } from './useActions'
 import { useAppStore } from '../stores/appStore'
+import { buildKeyboardMap } from '../utils/buttonMappings'
 import type { SemanticAction } from '../types'
 
-const KEY_ACTION_MAP: Record<string, SemanticAction> = {
+// Fallback map used when config hasn't loaded yet
+const DEFAULT_KEY_MAP: Record<string, SemanticAction> = {
   'ctrl+1': 'context',
   'ctrl+2': 'explain',
   'ctrl+3': 'fix',
@@ -16,9 +18,11 @@ const KEY_ACTION_MAP: Record<string, SemanticAction> = {
 export function useKeyboard() {
   const { sendAction } = useActions()
   const { setRecordingVoice, isRecordingVoice, activeSessionId, setBusy, setDraftText, draftText } = useAppStore()
+  const voiceKeyRef = useRef<string | null>(null)
 
   const handleVoiceStop = useCallback(async () => {
     setRecordingVoice(false)
+    voiceKeyRef.current = null
     if (!activeSessionId) return
 
     try {
@@ -37,7 +41,8 @@ export function useKeyboard() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       const inTextInput = target.tagName === 'TEXTAREA' || target.tagName === 'INPUT'
-      const uiMode = useAppStore.getState().uiMode
+      const state = useAppStore.getState()
+      const { uiMode } = state
 
       const parts: string[] = []
       if (e.ctrlKey || e.metaKey) parts.push('ctrl')
@@ -51,23 +56,25 @@ export function useKeyboard() {
 
       const combo = parts.join('+')
 
-      // Escape: close menus or interrupt
+      // Escape: always close overlays first
       if (key === 'escape') {
-        e.preventDefault()
-        if (uiMode === 'startMenu' || uiMode === 'newSession') {
-          useAppStore.getState().setUIMode('terminal')
-        } else if (activeSessionId) {
-          invoke('pty_write', { sessionId: activeSessionId, data: '\x03' }).catch((err) =>
-            console.error('Failed to interrupt:', err)
-          )
+        if (uiMode === 'startMenu' || uiMode === 'newSession' || uiMode === 'remapper') {
+          e.preventDefault()
+          state.setUIMode('terminal')
+          return
         }
-        return
       }
 
-      // Voice: Ctrl+Space hold to record (works everywhere)
-      if (combo === 'ctrl+ ' || combo === 'ctrl+space') {
+      // Build config-driven keyboard map (or use fallback)
+      const mappings = state.config?.button_mappings
+      const keyMap = mappings ? buildKeyboardMap(mappings) : DEFAULT_KEY_MAP
+      const action = keyMap[combo]
+
+      // Voice action: works in all modes (push-to-hold)
+      if (action === 'voice') {
         e.preventDefault()
-        if (!isRecordingVoice) {
+        if (!isRecordingVoice && activeSessionId) {
+          voiceKeyRef.current = key
           setRecordingVoice(true)
           invoke('start_voice_recording').catch((err) =>
             console.error('Failed to start recording:', err)
@@ -76,7 +83,7 @@ export function useKeyboard() {
         return
       }
 
-      // When not in terminal mode, suppress most shortcuts
+      // Non-terminal modes: no further shortcuts
       if (uiMode !== 'terminal') return
 
       // Don't intercept other shortcuts when focused in text input
@@ -98,17 +105,28 @@ export function useKeyboard() {
         return
       }
 
-      // Ctrl+1-6: Semantic actions
-      const action = KEY_ACTION_MAP[combo]
+      // Execute matched action from config
       if (action) {
         e.preventDefault()
-        sendAction(action)
+        if (action === 'interrupt') {
+          if (activeSessionId) {
+            invoke('pty_write', { sessionId: activeSessionId, data: '\x03' }).catch((err) =>
+              console.error('Failed to interrupt:', err)
+            )
+          }
+        } else {
+          sendAction(action)
+        }
       }
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if ((e.key === ' ' || e.key === 'Space') && isRecordingVoice) {
-        handleVoiceStop()
+      if (isRecordingVoice) {
+        const key = e.key.toLowerCase()
+        // Stop recording when the voice key is released
+        if (key === voiceKeyRef.current || key === ' ') {
+          handleVoiceStop()
+        }
       }
     }
 

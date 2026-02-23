@@ -155,6 +155,13 @@ function buildSettingsTab(
       settingKey: 'whisper_model',
       value: config?.whisper_model || 'base.en',
     },
+    {
+      id: 'setting-button-mappings',
+      type: 'setting',
+      label: 'Button Mappings',
+      settingKey: 'button_mappings',
+      value: '',
+    },
   ]
 }
 
@@ -377,6 +384,9 @@ export async function executeStartMenuItem(item: StartMenuItem) {
       }
       else if (item.settingKey === 'whisper_model') {
         state.setUIMode('modelManager')
+      }
+      else if (item.settingKey === 'button_mappings') {
+        state.setUIMode('remapper')
       }
       // theme: display-only for now (no cycling implemented)
       break

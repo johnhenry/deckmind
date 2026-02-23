@@ -69,6 +69,10 @@ interface AppStore {
   modelDownloadPercent: number
   modelDownloadError: string | null
 
+  // Remapper state
+  remapperFocusIndex: number
+  remapperCaptureState: { actionIndex: number; bindingType: 'keyboard' | 'gamepad' | null } | null
+
   // Config
   config: AppConfig | null
 
@@ -112,6 +116,8 @@ interface AppStore {
   setModelDownloading: (name: string | null) => void
   setModelDownloadPercent: (percent: number) => void
   setModelDownloadError: (error: string | null) => void
+  setRemapperFocusIndex: (index: number) => void
+  setRemapperCaptureState: (state: { actionIndex: number; bindingType: 'keyboard' | 'gamepad' | null } | null) => void
   setConfig: (config: AppConfig) => void
   showToast: (message: string) => void
   clearToast: () => void
@@ -152,6 +158,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   modelDownloading: null,
   modelDownloadPercent: 0,
   modelDownloadError: null,
+  remapperFocusIndex: 0,
+  remapperCaptureState: null,
   config: null,
   toastMessage: null,
   toastTimerId: null,
@@ -192,6 +200,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ uiMode: mode, dirBrowserFocusIndex: 0, keyboardActive: false })
     } else if (mode === 'modelManager') {
       set({ uiMode: mode, modelManagerFocusIndex: 0, keyboardActive: false })
+    } else if (mode === 'remapper') {
+      set({ uiMode: mode, remapperFocusIndex: 0, remapperCaptureState: null, keyboardActive: false })
     } else if (mode === 'startMenu') {
       set({ uiMode: mode, startMenuFocusIndex: 0, startMenuTab: 0, keyboardActive: false })
     } else {
@@ -224,6 +234,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setModelDownloading: (name) => set({ modelDownloading: name }),
   setModelDownloadPercent: (percent) => set({ modelDownloadPercent: percent }),
   setModelDownloadError: (error) => set({ modelDownloadError: error }),
+  setRemapperFocusIndex: (index) => set({ remapperFocusIndex: index }),
+  setRemapperCaptureState: (state) => set({ remapperCaptureState: state }),
   setConfig: (config) => set({ config, safetyMode: config.safety_mode }),
   showToast: (message: string) => {
     const prev = get().toastTimerId

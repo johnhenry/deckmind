@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../stores/appStore'
 import { executeStartMenuItem, buildStartMenuItemsForTab } from '../components/StartMenu'
 import { buildClaudeCommand } from '../utils/buildClaudeCommand'
+import { getDefaultMappings } from '../utils/buttonMappings'
+import { ACTIONS } from '../types'
 import type { SessionInfo } from '../types'
 
 // Buttons the hidraw reader emits that we handle.
@@ -128,6 +130,9 @@ export function useGamepad() {
         case 'modelManager':
           await handleModelManagerButton(configButton, state)
           break
+        case 'remapper':
+          await handleRemapperButton(configButton, state)
+          break
       }
     })
 
@@ -160,8 +165,13 @@ async function handleTerminalButton(button: string, state: ReturnType<typeof use
 
   switch (button) {
     case 'A': {
+      if (!activeSessionId) return
       const text = draftText.trim()
-      if (!text || !activeSessionId) return
+      if (!text) {
+        // Empty draft: send bare Enter to submit Claude's inner input
+        await ptyWrite(activeSessionId, '\r').catch(() => {})
+        return
+      }
       try {
         await ptyWriteAndSubmit(activeSessionId, text)
         setDraftText('')
@@ -249,9 +259,11 @@ async function handleTerminalButton(button: string, state: ReturnType<typeof use
       if (state.keyboardActive) {
         state.setKeyboardActive(false)
         state.focusTerminal()
+        invoke('toggle_virtual_keyboard').catch(() => {})
         state.showToast('Keyboard dismissed')
       } else {
         state.setKeyboardActive(true)
+        invoke('toggle_virtual_keyboard').catch(() => {})
         state.showToast('Keyboard')
       }
       return
@@ -535,6 +547,91 @@ async function handleModelManagerButton(button: string, state: ReturnType<typeof
       setUIMode('startMenu')
       return
     }
+  }
+}
+
+// --- Remapper button handler ---
+async function handleRemapperButton(button: string, state: ReturnType<typeof useAppStore.getState>) {
+  const {
+    remapperFocusIndex,
+    setRemapperFocusIndex,
+    remapperCaptureState,
+    setRemapperCaptureState,
+    setUIMode,
+    config,
+    showToast,
+  } = state
+
+  const maxIndex = ACTIONS.length - 1
+
+  // In gamepad capture mode: let the component's listener handle it (except B to cancel)
+  if (remapperCaptureState?.bindingType === 'gamepad') {
+    // B cancels are handled by the component listener
+    return
+  }
+
+  // In keyboard capture mode: only B cancels
+  if (remapperCaptureState?.bindingType === 'keyboard') {
+    if (button === 'B') {
+      setRemapperCaptureState(null)
+    }
+    return
+  }
+
+  // In type selection mode (bindingType === null): DPadLeft/DPadRight to choose, B to cancel
+  if (remapperCaptureState && remapperCaptureState.bindingType === null) {
+    switch (button) {
+      case 'DPadLeft':
+        setRemapperCaptureState({ ...remapperCaptureState, bindingType: 'keyboard' })
+        return
+      case 'DPadRight':
+        setRemapperCaptureState({ ...remapperCaptureState, bindingType: 'gamepad' })
+        return
+      case 'B':
+        setRemapperCaptureState(null)
+        return
+    }
+    return
+  }
+
+  // Normal mode
+  switch (button) {
+    case 'DPadUp':
+      setRemapperFocusIndex(Math.max(0, remapperFocusIndex - 1))
+      return
+    case 'DPadDown':
+      setRemapperFocusIndex(Math.min(maxIndex, remapperFocusIndex + 1))
+      return
+    case 'A':
+      // Enter capture mode (type selection)
+      setRemapperCaptureState({ actionIndex: remapperFocusIndex, bindingType: null })
+      return
+    case 'X': {
+      // Clear focused action's bindings
+      if (!config) return
+      const action = ACTIONS[remapperFocusIndex]
+      const newMappings = config.button_mappings.map((m) =>
+        m.action === action.id ? { ...m, keyboard: null, gamepad: null } : m
+      )
+      const newConfig = { ...config, button_mappings: newMappings }
+      state.setConfig(newConfig)
+      invoke('update_config', { newConfig }).catch(() => {})
+      showToast(`Cleared ${action.label}`)
+      return
+    }
+    case 'Y': {
+      // Reset all to defaults
+      if (!config) return
+      const newConfig = { ...config, button_mappings: getDefaultMappings() }
+      state.setConfig(newConfig)
+      invoke('update_config', { newConfig }).catch(() => {})
+      showToast('Reset to defaults')
+      return
+    }
+    case 'B':
+    case 'Start':
+      setUIMode('startMenu')
+      return
   }
 }
 

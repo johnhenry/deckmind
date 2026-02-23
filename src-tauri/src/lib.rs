@@ -69,6 +69,7 @@ pub fn run() {
             commands::set_whisper_model,
             commands::delete_whisper_model,
             commands::build_custom_prompt,
+            commands::toggle_virtual_keyboard,
         ])
         .setup(|app| {
             log::info!("DeckMind initialized");
@@ -515,5 +516,32 @@ mod commands {
             log::info!("Deleted whisper model {}", path.display());
         }
         Ok(())
+    }
+
+    /// Toggle the on-screen keyboard.
+    /// Tries onboard (X11 desktop mode), falls back to Steam overlay keyboard (Gaming Mode).
+    #[tauri::command]
+    pub async fn toggle_virtual_keyboard() {
+        // Check if onboard is already running — if so, kill it (toggle off)
+        let status = std::process::Command::new("pkill")
+            .arg("-f")
+            .arg("onboard")
+            .status();
+        if let Ok(s) = status {
+            if s.success() {
+                return; // Was running, now killed = toggled off
+            }
+        }
+        // Not running — try to launch onboard
+        if std::process::Command::new("onboard")
+            .spawn()
+            .is_ok()
+        {
+            return;
+        }
+        // Fallback: Steam overlay keyboard (works in Gaming Mode)
+        let _ = std::process::Command::new("steam")
+            .args(["-ifrunning", "steam://open/keyboard"])
+            .spawn();
     }
 }

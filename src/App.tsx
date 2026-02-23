@@ -8,6 +8,7 @@ import { StartMenu } from './components/StartMenu'
 import { NewSessionDialog } from './components/NewSessionDialog'
 import { DirectoryBrowser } from './components/DirectoryBrowser'
 import { ModelManager } from './components/ModelManager'
+import { ButtonRemapper } from './components/ButtonRemapper'
 import { VoiceIndicator } from './components/VoiceIndicator'
 import { SessionToast } from './components/SessionToast'
 import { TextInput } from './components/TextInput'
@@ -67,6 +68,7 @@ function App() {
       <NewSessionDialog />
       <DirectoryBrowser />
       <ModelManager />
+      <ButtonRemapper />
       <VoiceIndicator />
       <SessionToast />
     </div>

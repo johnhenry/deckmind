@@ -70,6 +70,7 @@ The frontend `useGamepad` hook listens for these events and dispatches actions. 
 - **Start menu mode:** DPad=Navigate, A=Select, X=CloseSession, B/Start=Close
 - **New session mode:** DPad=Navigate fields, A=Create, Y=Browse(dir field)/Continue(create field), B=Back
 - **Dir browser mode:** DPad=Navigate, A=Enter dir, X=Select dir, B=Up, Start=Cancel
+- **Remapper mode:** DPad=Navigate actions, A=Enter capture, X=Clear binding, Y=Reset defaults, B=Back
 
 ### Resume ID Parsing
 
@@ -80,6 +81,7 @@ When Claude exits and offers a resume option, the resume ID is parsed from the *
 ```
 src/                              # React frontend
   components/
+    ButtonRemapper.tsx              # Keyboard/gamepad shortcut remapping overlay
     ControllerBar.tsx               # Bottom HUD (L1/Select/Start/B/A/R2 buttons)
     DirectoryBrowser.tsx            # Gamepad-navigable filesystem browser overlay
     DraftOverlay.tsx                # Ghost draft preview in terminal area
@@ -101,6 +103,7 @@ src/                              # React frontend
     index.ts                        # SemanticAction, SafetyMode, SessionInfo, DirEntry, AppConfig
   utils/
     buildClaudeCommand.ts           # Shared command builder (filters --worktree on resume)
+    buttonMappings.ts               # Config↔hook bridge (buildKeyboardMap, buildGamepadMap, defaults)
   styles/
     global.css                      # Cyber theme (dark blue, cyan accents)
 
@@ -139,7 +142,9 @@ src-tauri/src/                    # Rust backend
 | `src/components/NewSessionDialog.tsx` | Session creation dialog (name, dir, worktree, continue) |
 | `src/components/StartMenu.tsx` | Central hub (sessions, actions, model/effort/voice settings) |
 | `src/hooks/useSession.ts` | Event listeners, xterm.js buffer parsing for resume ID |
-| `src/hooks/useGamepad.ts` | Gamepad event → action dispatch (terminal, startMenu, newSession, dirBrowser) |
+| `src/components/ButtonRemapper.tsx` | Keyboard/gamepad shortcut remapping with capture flow |
+| `src/utils/buttonMappings.ts` | Config↔hook bridge for keyboard/gamepad mappings |
+| `src/hooks/useGamepad.ts` | Gamepad event → action dispatch (terminal, startMenu, newSession, dirBrowser, remapper) |
 | `src/stores/appStore.ts` | Central Zustand store |
 | `src/utils/buildClaudeCommand.ts` | Shared command builder (used by 4 restart/resume/continue sites) |
 | `src/components/TerminalPane.tsx` | xterm.js setup, WebGL, resize handling |
@@ -162,13 +167,14 @@ src-tauri/src/                    # Rust backend
 | `start_voice_recording` / `stop_voice_recording` | Voice capture + transcription |
 | `get_config` / `update_config` | Config CRUD |
 | `get_safety_mode` / `set_safety_mode` | Safety mode accessors |
+| `toggle_virtual_keyboard` | Toggle on-screen keyboard (onboard on X11, Steam overlay fallback) |
 
 ## Semantic Actions
 
-Actions populate the text input bar (draft text) for user review before sending:
+Actions populate the text input bar (draft text) for user review before sending. Keyboard shortcuts are **config-driven** via `button_mappings` in config (remappable from Start Menu → Settings → Button Mappings). Defaults:
 
-| Action | Shortcut | What it does |
-|--------|----------|-------------|
+| Action | Default Shortcut | What it does |
+|--------|-----------------|-------------|
 | Context | Ctrl+1 | "What am I doing?" — understands current task |
 | Explain | Ctrl+2 | Understand current state |
 | Fix | Ctrl+3 | Diagnose and repair errors |
@@ -178,6 +184,8 @@ Actions populate the text input bar (draft text) for user review before sending:
 | Stop | Escape | Sends Ctrl+C to PTY |
 | Voice | Ctrl+Space | Hold to record, release to transcribe |
 
+Keyboard shortcut lookup uses `buildKeyboardMap()` from `src/utils/buttonMappings.ts`, reading `config.button_mappings` at keypress time. Falls back to hardcoded defaults if config isn't loaded yet.
+
 ## Controller Bar / Gamepad Buttons
 
 Works with both on-screen clicks and physical Steam Deck buttons (via hidraw).
@@ -186,10 +194,10 @@ Works with both on-screen clicks and physical Steam Deck buttons (via hidraw).
 
 | Button | Running | Session Ended |
 |--------|---------|---------------|
-| **A** | Send draft text | Send draft text |
+| **A** | Send draft text (or Enter if empty) | Send draft text (or Enter if empty) |
 | **B** | Stop (Ctrl+C) | Start or Resume (with stored flags) |
 | **Y** | — | Continue last conversation (`--continue`) |
-| **X** | Toggle on-screen keyboard | — |
+| **X** | Toggle virtual keyboard (onboard) | — |
 | **L1** | Cycle safety mode (Shift+Tab) | — |
 | **R1** | Send Escape to PTY | — |
 | **R2** | Push-to-talk voice (hold) | — |
@@ -220,6 +228,14 @@ Works with both on-screen clicks and physical Steam Deck buttons (via hidraw).
 | **X** | Select current directory |
 | **B** | Go up one level |
 | **Start** | Cancel, return to new session dialog |
+
+### Button Remapper
+
+Accessed from Start Menu → Settings → Button Mappings. Allows remapping keyboard shortcuts for all 8 semantic actions. Gamepad buttons have fixed terminal roles and are not remapped via config.
+
+Capture flow: A enters capture → DPadLeft selects keyboard capture, DPadRight selects gamepad capture → press desired key/button → binding saved to config. Escape/B cancels. Conflicts auto-clear the previous binding with a toast.
+
+The remapper state lives in `appStore` (`remapperFocusIndex`, `remapperCaptureState`). Keyboard capture uses a `window.addEventListener('keydown', ..., { capture: true })` listener to intercept before `useKeyboard`. Gamepad capture uses a separate `listen('gamepad-button')` in the component.
 
 ## Build & Run
 
@@ -254,6 +270,11 @@ theme: "cyber"
 default_working_dir: null      # Optional default cwd for new sessions
 default_model: null            # Optional: sonnet | opus | haiku (passed as --model)
 default_effort: null           # Optional: low | medium | high (passed as --effort)
+button_mappings:               # Keyboard/gamepad shortcut mappings (managed by remapper UI)
+  - action: context
+    keyboard: { key: "1", modifiers: ["Ctrl"] }
+    gamepad: null
+  # ... (8 entries: context, explain, fix, continue, plan, summarize, interrupt, voice)
 ```
 
 ## Development Notes
@@ -271,4 +292,5 @@ default_effort: null           # Optional: low | medium | high (passed as --effo
 
 - **Gamepad:** Steam grabs exclusive evdev access in Desktop Mode. DeckMind reads `/dev/hidraw*` directly (Valve vendor `28DE`, product `1205`) to get button events. Standard gamepad libraries (gilrs, SDL) will not work.
 - **Audio:** cpal uses ALSA, which must route through PipeWire via `pipewire-alsa` (installed in distrobox). Without it, recording returns silence. The internal mic source is a PipeWire loopback device.
-- **Distrobox deps:** The distrobox needs `systemd-libs` (for libudev), `pipewire-alsa` (for mic capture), and standard Rust/Node toolchains. Install with `sudo pacman -S --noconfirm systemd-libs pipewire-alsa`.
+- **Virtual keyboard:** X11 desktop mode has no built-in virtual keyboard. DeckMind uses `onboard` (toggled via X button). `steam://open/keyboard` only works in Gaming Mode (gamescope). Maliit is Wayland-only.
+- **Distrobox deps:** The distrobox needs `systemd-libs` (for libudev), `pipewire-alsa` (for mic capture), `onboard` (for virtual keyboard), and standard Rust/Node toolchains. Install with `sudo pacman -S --noconfirm systemd-libs pipewire-alsa onboard`.

@@ -48,10 +48,18 @@ export function ControllerBar() {
     }
   }, [activeSessionId])
 
-  // A: Type text into terminal then press Enter
+  // A: Type text into terminal then press Enter. If draft is empty, send bare Enter to PTY.
   const handleSend = useCallback(async () => {
+    if (!activeSessionId) return
     const text = draftText.trim()
-    if (!text || !activeSessionId) return
+    if (!text) {
+      try {
+        await ptyWrite(activeSessionId, '\r')
+      } catch (e) {
+        console.error('Failed to send enter:', e)
+      }
+      return
+    }
     try {
       await ptyWriteAndSubmit(activeSessionId, text)
       setDraftText('')
@@ -200,7 +208,6 @@ export function ControllerBar() {
             <button
               className={`controller-btn face-btn face-a${activeGamepadButton === 'A' ? ' gamepad-active' : ''}`}
               onClick={handleSend}
-              disabled={!draftText.trim()}
               title="Send message (Enter)"
             >
               <span className="glyph">{'\u24B6'}</span>
