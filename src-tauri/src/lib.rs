@@ -11,6 +11,7 @@ use session::SessionManager;
 use storage::StorageManager;
 use voice::VoiceEngine;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::Mutex;
 
 pub struct AppState {
@@ -18,6 +19,7 @@ pub struct AppState {
     pub config: Arc<Mutex<AppConfig>>,
     pub storage: Arc<Mutex<StorageManager>>,
     pub voice_engine: Arc<Mutex<VoiceEngine>>,
+    pub download_cancel: Arc<AtomicBool>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -34,6 +36,7 @@ pub fn run() {
         config: Arc::new(Mutex::new(config)),
         storage: Arc::new(Mutex::new(storage)),
         voice_engine: Arc::new(Mutex::new(voice_engine)),
+        download_cancel: Arc::new(AtomicBool::new(false)),
     };
 
     tauri::Builder::default()
@@ -60,6 +63,12 @@ pub fn run() {
             commands::get_session_flags,
             commands::list_directory,
             commands::get_home_dir,
+            commands::list_whisper_models,
+            commands::download_whisper_model,
+            commands::cancel_model_download,
+            commands::set_whisper_model,
+            commands::delete_whisper_model,
+            commands::build_custom_prompt,
         ])
         .setup(|app| {
             log::info!("DeckMind initialized");
@@ -424,5 +433,87 @@ mod commands {
         dirs::home_dir()
             .map(|p| p.to_string_lossy().to_string())
             .ok_or_else(|| "Cannot determine home directory".to_string())
+    }
+
+    /// List available whisper models with their download status.
+    #[tauri::command]
+    pub async fn list_whisper_models() -> Result<Vec<crate::voice::downloader::WhisperModelInfo>, String> {
+        Ok(crate::voice::downloader::list_models())
+    }
+
+    /// Start downloading a whisper model in the background.
+    /// Returns immediately; progress is emitted via `model-download-progress` events.
+    #[tauri::command]
+    pub async fn download_whisper_model(
+        app: tauri::AppHandle,
+        state: tauri::State<'_, AppState>,
+        model_name: String,
+    ) -> Result<(), String> {
+        use std::sync::atomic::Ordering;
+
+        // Reset cancel flag
+        state.download_cancel.store(false, Ordering::Relaxed);
+        let cancel = state.download_cancel.clone();
+        let name = model_name.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = crate::voice::downloader::download_model(app.clone(), name.clone(), cancel).await {
+                log::error!("Model download failed: {}", e);
+                // Error is already emitted as a progress event with error field
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Cancel an in-progress model download.
+    #[tauri::command]
+    pub async fn cancel_model_download(
+        state: tauri::State<'_, AppState>,
+    ) -> Result<(), String> {
+        use std::sync::atomic::Ordering;
+        state.download_cancel.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Set the active whisper model and persist to config.
+    #[tauri::command]
+    pub async fn set_whisper_model(
+        state: tauri::State<'_, AppState>,
+        model_name: String,
+    ) -> Result<(), String> {
+        // Update voice engine
+        let mut engine = state.voice_engine.lock().await;
+        engine.set_model(&model_name);
+        drop(engine);
+
+        // Persist to config
+        let mut config = state.config.lock().await;
+        config.whisper_model = model_name;
+        config.save().map_err(|e| e.to_string())
+    }
+
+    /// Build a custom action prompt by replacing {context} in the template.
+    #[tauri::command]
+    pub async fn build_custom_prompt(
+        template: String,
+    ) -> Result<String, String> {
+        let context = ContextCollector::collect().await;
+        let prompt = template.replace("{context}", &context.to_prompt_string());
+        Ok(prompt)
+    }
+
+    /// Delete a downloaded whisper model file.
+    #[tauri::command]
+    pub async fn delete_whisper_model(
+        model_name: String,
+    ) -> Result<(), String> {
+        let path = crate::voice::downloader::model_path(&model_name);
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .map_err(|e| format!("Cannot delete {}: {}", path.display(), e))?;
+            log::info!("Deleted whisper model {}", path.display());
+        }
+        Ok(())
     }
 }

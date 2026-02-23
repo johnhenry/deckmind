@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Terminal } from '@xterm/xterm'
-import type { SessionInfo, SafetyMode, AppConfig, UIMode, DirEntry } from '../types'
+import type { SessionInfo, SafetyMode, AppConfig, UIMode, DirEntry, WhisperModelInfo } from '../types'
 
 interface SessionState {
   ended: boolean
@@ -39,6 +39,7 @@ interface AppStore {
   // UI Mode
   uiMode: UIMode
   startMenuFocusIndex: number
+  startMenuTab: number
   textInputFocused: boolean
   keyboardActive: boolean
 
@@ -60,6 +61,13 @@ interface AppStore {
   // New session options
   newSessionWorktree: boolean
   newSessionContinue: boolean
+
+  // Model manager state
+  modelManagerFocusIndex: number
+  modelList: WhisperModelInfo[]
+  modelDownloading: string | null
+  modelDownloadPercent: number
+  modelDownloadError: string | null
 
   // Config
   config: AppConfig | null
@@ -84,6 +92,7 @@ interface AppStore {
   setBusy: (busy: boolean) => void
   setUIMode: (mode: UIMode) => void
   setStartMenuFocusIndex: (index: number) => void
+  setStartMenuTab: (tab: number) => void
   setTextInputFocused: (focused: boolean) => void
   setKeyboardActive: (on: boolean) => void
   setNewSessionFieldIndex: (index: number) => void
@@ -98,6 +107,11 @@ interface AppStore {
   setDirBrowserLoading: (loading: boolean) => void
   setNewSessionWorktree: (on: boolean) => void
   setNewSessionContinue: (on: boolean) => void
+  setModelManagerFocusIndex: (index: number) => void
+  setModelList: (list: WhisperModelInfo[]) => void
+  setModelDownloading: (name: string | null) => void
+  setModelDownloadPercent: (percent: number) => void
+  setModelDownloadError: (error: string | null) => void
   setConfig: (config: AppConfig) => void
   showToast: (message: string) => void
   clearToast: () => void
@@ -119,6 +133,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isBusy: false,
   uiMode: 'terminal',
   startMenuFocusIndex: 0,
+  startMenuTab: 0,
   textInputFocused: false,
   keyboardActive: false,
   newSessionFieldIndex: 0,
@@ -132,6 +147,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   dirBrowserLoading: false,
   newSessionWorktree: false,
   newSessionContinue: false,
+  modelManagerFocusIndex: 0,
+  modelList: [],
+  modelDownloading: null,
+  modelDownloadPercent: 0,
+  modelDownloadError: null,
   config: null,
   toastMessage: null,
   toastTimerId: null,
@@ -170,11 +190,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
     } else if (mode === 'dirBrowser') {
       set({ uiMode: mode, dirBrowserFocusIndex: 0, keyboardActive: false })
+    } else if (mode === 'modelManager') {
+      set({ uiMode: mode, modelManagerFocusIndex: 0, keyboardActive: false })
+    } else if (mode === 'startMenu') {
+      set({ uiMode: mode, startMenuFocusIndex: 0, startMenuTab: 0, keyboardActive: false })
     } else {
       set({ uiMode: mode, startMenuFocusIndex: 0, keyboardActive: false })
     }
   },
   setStartMenuFocusIndex: (index) => set({ startMenuFocusIndex: index }),
+  setStartMenuTab: (tab) => set({ startMenuTab: tab, startMenuFocusIndex: 0 }),
   setTextInputFocused: (focused) => set({ textInputFocused: focused }),
   setKeyboardActive: (on) => set({ keyboardActive: on }),
   setNewSessionFieldIndex: (index) => set({ newSessionFieldIndex: index }),
@@ -194,6 +219,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setDirBrowserLoading: (loading) => set({ dirBrowserLoading: loading }),
   setNewSessionWorktree: (on) => set({ newSessionWorktree: on }),
   setNewSessionContinue: (on) => set({ newSessionContinue: on }),
+  setModelManagerFocusIndex: (index) => set({ modelManagerFocusIndex: index }),
+  setModelList: (list) => set({ modelList: list }),
+  setModelDownloading: (name) => set({ modelDownloading: name }),
+  setModelDownloadPercent: (percent) => set({ modelDownloadPercent: percent }),
+  setModelDownloadError: (error) => set({ modelDownloadError: error }),
   setConfig: (config) => set({ config, safetyMode: config.safety_mode }),
   showToast: (message: string) => {
     const prev = get().toastTimerId

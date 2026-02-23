@@ -60,6 +60,8 @@ export function TextInput() {
     [handleSend]
   )
 
+  if (!activeSessionId) return null
+
   return (
     <div className="text-input-bar">
       <textarea
@@ -71,8 +73,7 @@ export function TextInput() {
         onKeyDown={handleKeyDown}
         onFocus={() => setTextInputFocused(true)}
         onBlur={() => setTextInputFocused(false)}
-        placeholder={activeSessionId ? 'Type a message or use voice...' : 'Create a session first'}
-        disabled={!activeSessionId}
+        placeholder="Type a message or use voice..."
         rows={1}
       />
     </div>

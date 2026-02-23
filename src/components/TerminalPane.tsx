@@ -2,7 +2,6 @@ import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
-import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useAppStore } from '../stores/appStore'
 import '@xterm/xterm/css/xterm.css'
@@ -51,6 +50,7 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
       allowTransparency: false,
       scrollback: 10000,
       convertEol: false,
+      disableStdin: true,
     })
 
     const fitAddon = new FitAddon()
@@ -70,13 +70,6 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     terminalRef.current = term
     fitAddonRef.current = fitAddon
     setTerminalInstance(term)
-
-    // Send keyboard input from xterm.js to the PTY
-    term.onData((data: string) => {
-      invoke('pty_write', { sessionId, data }).catch((e) =>
-        console.error('PTY write failed:', e)
-      )
-    })
 
     // Listen for PTY output and write to xterm.js
     const unlisten = await listen<{ session_id: string; data: string }>(
@@ -107,18 +100,6 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     }
   }, [setupTerminal])
 
-  // Blur terminal when overlay is shown so xterm.js stops capturing keyboard input.
-  // Re-focus when returning to terminal mode.
-  const uiMode = useAppStore((s) => s.uiMode)
-  useEffect(() => {
-    const term = terminalRef.current
-    if (!term) return
-    if (uiMode === 'terminal') {
-      term.focus()
-    } else {
-      term.blur()
-    }
-  }, [uiMode])
 
   // Re-fit when container size changes
   useEffect(() => {

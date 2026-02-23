@@ -134,30 +134,33 @@ export function ControllerBar() {
 
   return (
     <div className="controller-bar">
-      {/* L1 - Cycle Claude's permission mode via Shift+Tab */}
-      <button
-        className={`bumper-btn mode-btn${activeGamepadButton === 'L1' ? ' gamepad-active' : ''}`}
-        onClick={cycleSafetyMode}
-        disabled={!activeSessionId}
-        title="Cycle permission mode (Shift+Tab)"
-      >
-        <span className="bumper-label">L1</span>
-        <span className="bumper-text">Mode</span>
-      </button>
+      {activeSessionId && (
+        <>
+          {/* L1 - Cycle Claude's permission mode via Shift+Tab */}
+          <button
+            className={`bumper-btn mode-btn${activeGamepadButton === 'L1' ? ' gamepad-active' : ''}`}
+            onClick={cycleSafetyMode}
+            title="Cycle permission mode (Shift+Tab)"
+          >
+            <span className="bumper-label">L1</span>
+            <span className="bumper-text">Mode</span>
+          </button>
 
-      <div className="controller-divider" />
+          <div className="controller-divider" />
 
-      {/* Select - Cycle sessions */}
-      <button
-        className={`controller-btn menu-btn${activeGamepadButton === 'Select' ? ' gamepad-active' : ''}`}
-        onClick={handleCycleSession}
-        disabled={sessions.length <= 1}
-        title="Cycle sessions"
-      >
-        <span className="glyph">{'\u21C6'}</span>
-      </button>
+          {/* Select - Cycle sessions */}
+          <button
+            className={`controller-btn menu-btn${activeGamepadButton === 'Select' ? ' gamepad-active' : ''}`}
+            onClick={handleCycleSession}
+            disabled={sessions.length <= 1}
+            title="Cycle sessions"
+          >
+            <span className="glyph">{'\u21C6'}</span>
+          </button>
 
-      <div className="controller-divider" />
+          <div className="controller-divider" />
+        </>
+      )}
 
       {/* Start - Toggle Start menu */}
       <button
@@ -169,56 +172,57 @@ export function ControllerBar() {
         <span className="label">Start</span>
       </button>
 
-      <div className="controller-divider" />
+      {activeSessionId && (
+        <>
+          <div className="controller-divider" />
 
-      {/* B (Stop/Start/Resume) and A (Send) */}
-      <div className="face-group">
-        {sessionEnded ? (
+          {/* B (Stop/Start/Resume) and A (Send) */}
+          <div className="face-group">
+            {sessionEnded ? (
+              <button
+                className={`controller-btn face-btn face-b${activeGamepadButton === 'B' ? ' gamepad-active' : ''}`}
+                onClick={handleRestart}
+                title={claudeResumeId ? `Resume session (${claudeResumeId})` : 'Start new Claude session'}
+              >
+                <span className="glyph">{'\u24B7'}</span>
+                <span className="label">{claudeResumeId ? 'Resume' : 'Start'}</span>
+              </button>
+            ) : (
+              <button
+                className={`controller-btn face-btn face-b${activeGamepadButton === 'B' ? ' gamepad-active' : ''}`}
+                onClick={handleStop}
+                title="Stop / Interrupt (Ctrl+C)"
+              >
+                <span className="glyph">{'\u24B7'}</span>
+                <span className="label">Stop</span>
+              </button>
+            )}
+            <button
+              className={`controller-btn face-btn face-a${activeGamepadButton === 'A' ? ' gamepad-active' : ''}`}
+              onClick={handleSend}
+              disabled={!draftText.trim()}
+              title="Send message (Enter)"
+            >
+              <span className="glyph">{'\u24B6'}</span>
+              <span className="label">Send</span>
+            </button>
+          </div>
+
+          <div className="controller-divider" />
+
+          {/* R2 - Voice push-to-talk */}
           <button
-            className={`controller-btn face-btn face-b${activeGamepadButton === 'B' ? ' gamepad-active' : ''}`}
-            onClick={handleRestart}
-            disabled={!activeSessionId}
-            title={claudeResumeId ? `Resume session (${claudeResumeId})` : 'Start new Claude session'}
+            className={`bumper-btn voice-bumper ${isRecordingVoice ? 'recording' : ''}${activeGamepadButton === 'R2' ? ' gamepad-active' : ''}`}
+            onMouseDown={handleVoiceDown}
+            onMouseUp={handleVoiceUp}
+            onMouseLeave={() => { if (isRecordingVoice) handleVoiceUp() }}
+            title="Push-to-talk (Ctrl+Space)"
           >
-            <span className="glyph">{'\u25B6'}</span>
-            <span className="label">{claudeResumeId ? 'Resume' : 'Start'}</span>
+            <span className="bumper-label">R2</span>
+            <span className="bumper-text">{isRecordingVoice ? 'Release' : 'Voice'}</span>
           </button>
-        ) : (
-          <button
-            className={`controller-btn face-btn face-b${activeGamepadButton === 'B' ? ' gamepad-active' : ''}`}
-            onClick={handleStop}
-            disabled={!activeSessionId}
-            title="Stop / Interrupt (Ctrl+C)"
-          >
-            <span className="glyph">{'\u24B7'}</span>
-            <span className="label">Stop</span>
-          </button>
-        )}
-        <button
-          className={`controller-btn face-btn face-a${activeGamepadButton === 'A' ? ' gamepad-active' : ''}`}
-          onClick={handleSend}
-          disabled={!activeSessionId || !draftText.trim()}
-          title="Send message (Enter)"
-        >
-          <span className="glyph">{'\u24B6'}</span>
-          <span className="label">Send</span>
-        </button>
-      </div>
-
-      <div className="controller-divider" />
-
-      {/* R2 - Voice push-to-talk */}
-      <button
-        className={`bumper-btn voice-bumper ${isRecordingVoice ? 'recording' : ''}${activeGamepadButton === 'R2' ? ' gamepad-active' : ''}`}
-        onMouseDown={handleVoiceDown}
-        onMouseUp={handleVoiceUp}
-        onMouseLeave={() => { if (isRecordingVoice) handleVoiceUp() }}
-        disabled={!activeSessionId}
-        title="Push-to-talk (Ctrl+Space)"
-      >
-        <span className="bumper-label">R2</span>
-        <span className="bumper-text">{isRecordingVoice ? 'Release' : 'Voice'}</span>
-      </button>
+        </>
+      )}
     </div>
   )
 }

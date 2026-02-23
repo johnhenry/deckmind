@@ -1,8 +1,10 @@
 use crate::actions::SemanticAction;
 use crate::config::ButtonMapping;
 
+#[allow(dead_code)]
 pub struct KeyboardInput;
 
+#[allow(dead_code)]
 impl KeyboardInput {
     pub fn match_action(key: &str, modifiers: &[String], mappings: &[ButtonMapping]) -> Option<SemanticAction> {
         for mapping in mappings {
@@ -29,6 +31,7 @@ impl KeyboardInput {
     }
 }
 
+#[allow(dead_code)]
 fn modifiers_match(expected: &[String], actual: &[String]) -> bool {
     if expected.len() != actual.len() {
         return false;

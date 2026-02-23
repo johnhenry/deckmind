@@ -229,6 +229,7 @@ impl ClaudeProcess {
         self.send_raw(&[0x03])
     }
 
+    #[allow(dead_code)]
     pub fn is_alive(&self) -> bool {
         self.alive.lock().map(|f| *f).unwrap_or(false)
     }

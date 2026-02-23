@@ -1,7 +1,7 @@
 import { useAppStore } from '../stores/appStore'
 
 export function MinimalStatusBar() {
-  const { sessions, activeSessionId, isBusy, safetyMode } = useAppStore()
+  const { sessions, activeSessionId, isBusy, safetyMode, modelDownloading, modelDownloadPercent } = useAppStore()
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
 
@@ -22,6 +22,11 @@ export function MinimalStatusBar() {
       <span className="status-bar-name">{activeSession.name}</span>
       {shortDir && <span className="status-bar-dir">{shortDir}</span>}
       {isBusy && <span className="busy-indicator" />}
+      {modelDownloading && (
+        <span className="model-download-badge">
+          {'\u2193'} {modelDownloading} {modelDownloadPercent}%
+        </span>
+      )}
       <span className={`safety-badge ${safetyMode}`}>{safetyMode}</span>
     </div>
   )

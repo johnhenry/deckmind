@@ -1,6 +1,5 @@
 import { useAppStore } from '../stores/appStore'
 import { TerminalPane } from './TerminalPane'
-import { DraftOverlay } from './DraftOverlay'
 
 export function SessionView() {
   const { activeSessionId } = useAppStore()
@@ -21,7 +20,6 @@ export function SessionView() {
   return (
     <div className="main-content">
       <TerminalPane key={activeSessionId} sessionId={activeSessionId} />
-      <DraftOverlay />
     </div>
   )
 }

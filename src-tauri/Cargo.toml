@@ -32,3 +32,5 @@ env_logger = "0.11"
 whisper-rs = "0.12"
 cpal = "0.15"
 libc = "0.2"
+reqwest = { version = "0.12", features = ["stream"] }
+futures-util = "0.3"

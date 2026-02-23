@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../stores/appStore'
-import { executeStartMenuItem, buildStartMenuItems } from '../components/StartMenu'
+import { executeStartMenuItem, buildStartMenuItemsForTab } from '../components/StartMenu'
 import { buildClaudeCommand } from '../utils/buildClaudeCommand'
 import type { SessionInfo } from '../types'
 
@@ -124,6 +124,9 @@ export function useGamepad() {
           break
         case 'dirBrowser':
           await handleDirBrowserButton(configButton, state)
+          break
+        case 'modelManager':
+          await handleModelManagerButton(configButton, state)
           break
       }
     })
@@ -298,11 +301,22 @@ async function handleTerminalButton(button: string, state: ReturnType<typeof use
 
 // --- Start menu button handler ---
 async function handleStartMenuButton(button: string, state: ReturnType<typeof useAppStore.getState>) {
-  const { startMenuFocusIndex, setStartMenuFocusIndex, setUIMode } = state
-  const items = buildStartMenuItems()
+  const { startMenuFocusIndex, setStartMenuFocusIndex, startMenuTab, setStartMenuTab, setUIMode } = state
+  const items = buildStartMenuItemsForTab(startMenuTab)
   const maxIndex = items.length - 1
 
   switch (button) {
+    case 'DPadLeft': {
+      // Previous tab (same as L1)
+      setStartMenuTab(startMenuTab <= 0 ? 2 : startMenuTab - 1)
+      return
+    }
+    case 'DPadRight': {
+      // Next tab (same as R1)
+      setStartMenuTab(startMenuTab >= 2 ? 0 : startMenuTab + 1)
+      return
+    }
+
     case 'DPadUp': {
       setStartMenuFocusIndex(Math.max(0, startMenuFocusIndex - 1))
       return
@@ -314,9 +328,10 @@ async function handleStartMenuButton(button: string, state: ReturnType<typeof us
 
     case 'A': {
       const item = items[startMenuFocusIndex]
-      if (item) {
-        await executeStartMenuItem(item)
-      }
+      if (!item) return
+      // Skip disabled actions (no active session)
+      if (item.type === 'action' && !state.activeSessionId) return
+      await executeStartMenuItem(item)
       return
     }
 
@@ -327,7 +342,8 @@ async function handleStartMenuButton(button: string, state: ReturnType<typeof us
     }
 
     case 'X': {
-      // Close focused session
+      // Close focused session (only in Sessions tab)
+      if (startMenuTab !== 0) return
       const item = items[startMenuFocusIndex]
       if (item?.type === 'session' && item.sessionId) {
         try {
@@ -339,7 +355,7 @@ async function handleStartMenuButton(button: string, state: ReturnType<typeof us
             state.setActiveSession(result.length > 0 ? result[0].id : null)
           }
           // Adjust focus if we deleted the last item
-          const newItems = buildStartMenuItems()
+          const newItems = buildStartMenuItemsForTab(0)
           if (startMenuFocusIndex >= newItems.length) {
             setStartMenuFocusIndex(Math.max(0, newItems.length - 1))
           }
@@ -428,6 +444,95 @@ async function handleNewSessionButton(button: string, state: ReturnType<typeof u
         state.setNewSessionContinue(false)
         triggerNewSessionCreate()
       }
+      return
+    }
+  }
+}
+
+// --- Model manager button handler ---
+async function handleModelManagerButton(button: string, state: ReturnType<typeof useAppStore.getState>) {
+  const {
+    modelManagerFocusIndex,
+    setModelManagerFocusIndex,
+    modelList,
+    modelDownloading,
+    setModelDownloading,
+    setModelDownloadPercent,
+    setModelDownloadError,
+    setUIMode,
+    config,
+    showToast,
+  } = state
+
+  const maxIndex = modelList.length - 1
+  const activeModel = config?.whisper_model || 'base.en'
+
+  switch (button) {
+    case 'DPadUp': {
+      setModelManagerFocusIndex(Math.max(0, modelManagerFocusIndex - 1))
+      return
+    }
+    case 'DPadDown': {
+      setModelManagerFocusIndex(Math.min(maxIndex, modelManagerFocusIndex + 1))
+      return
+    }
+    case 'A': {
+      const model = modelList[modelManagerFocusIndex]
+      if (!model) return
+      if (model.downloaded) {
+        // Select as active model
+        try {
+          await invoke('set_whisper_model', { modelName: model.name })
+          if (config) {
+            state.setConfig({ ...config, whisper_model: model.name })
+          }
+          showToast(`Model: ${model.name}`)
+        } catch (e) {
+          console.error('Failed to set model:', e)
+        }
+      } else if (!modelDownloading) {
+        // Start download
+        setModelDownloading(model.name)
+        setModelDownloadPercent(0)
+        setModelDownloadError(null)
+        try {
+          await invoke('download_whisper_model', { modelName: model.name })
+        } catch (e) {
+          console.error('Failed to start download:', e)
+          setModelDownloading(null)
+        }
+      }
+      return
+    }
+    case 'X': {
+      // Cancel active download
+      if (modelDownloading) {
+        try {
+          await invoke('cancel_model_download')
+        } catch (e) {
+          console.error('Failed to cancel download:', e)
+        }
+      }
+      return
+    }
+    case 'Y': {
+      // Delete model (if downloaded and not active)
+      const model = modelList[modelManagerFocusIndex]
+      if (!model || !model.downloaded || model.name === activeModel) return
+      try {
+        await invoke('delete_whisper_model', { modelName: model.name })
+        // Refresh list
+        const models = await invoke<import('../types').WhisperModelInfo[]>('list_whisper_models')
+        state.setModelList(models)
+        showToast(`Deleted ${model.name}`)
+      } catch (e) {
+        console.error('Failed to delete model:', e)
+      }
+      return
+    }
+    case 'B':
+    case 'Start': {
+      setUIMode('startMenu')
       return
     }
   }

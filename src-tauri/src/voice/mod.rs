@@ -1,5 +1,6 @@
 mod recorder;
 mod transcriber;
+pub mod downloader;
 
 pub use recorder::AudioRecorder;
 pub use transcriber::WhisperTranscriber;
@@ -91,5 +92,17 @@ impl VoiceEngine {
 
     pub fn model_path(&self) -> &PathBuf {
         &self.model_path
+    }
+
+    /// Switch to a different whisper model. Resets the transcriber so it
+    /// will be lazily reloaded on the next transcription request.
+    pub fn set_model(&mut self, model_name: &str) {
+        let model_dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".deckmind")
+            .join("models");
+        self.model_path = model_dir.join(format!("ggml-{}.bin", model_name));
+        self.transcriber = None;
+        log::info!("Whisper model switched to {}", self.model_path.display());
     }
 }

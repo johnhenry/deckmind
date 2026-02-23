@@ -3,27 +3,33 @@ import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../stores/appStore'
 import { buildClaudeCommand } from '../utils/buildClaudeCommand'
 import { MENU_ACTIONS } from '../types'
-import type { StartMenuItem, SafetyMode, SessionInfo } from '../types'
+import type { StartMenuItem, SafetyMode, SessionInfo, AppConfig, CustomActionDef } from '../types'
 
 const SAFETY_MODES: SafetyMode[] = ['observe', 'suggest', 'confirm', 'auto']
-
-/** Build the flat focusable item list from current state.
- *  Shared by the component (via useMemo) and useGamepad (via direct call). */
-export function buildStartMenuItems(): StartMenuItem[] {
-  const { sessions, activeSessionId, sessionStates, safetyMode, config } = useAppStore.getState()
-  const activeState = activeSessionId ? sessionStates[activeSessionId] : undefined
-  return buildItemList(sessions, activeState?.ended ?? false, activeState?.resumeId ?? null, safetyMode, config)
-}
+const TAB_NAMES = ['Sessions', 'Actions', 'Settings']
 
 const MODEL_CYCLE: (string | null)[] = [null, 'sonnet', 'opus', 'haiku']
 const EFFORT_CYCLE: (string | null)[] = [null, 'low', 'medium', 'high']
 
-function buildItemList(
+/** Build the focusable item list for a specific tab. Used by component and useGamepad. */
+export function buildStartMenuItemsForTab(tab: number): StartMenuItem[] {
+  const { sessions, activeSessionId, sessionStates, safetyMode, config } = useAppStore.getState()
+  const activeState = activeSessionId ? sessionStates[activeSessionId] : undefined
+  const sessionEnded = activeState?.ended ?? false
+  const claudeResumeId = activeState?.resumeId ?? null
+
+  switch (tab) {
+    case 0: return buildSessionsTab(sessions, sessionEnded, claudeResumeId)
+    case 1: return buildActionsTab(config)
+    case 2: return buildSettingsTab(safetyMode, config)
+    default: return []
+  }
+}
+
+function buildSessionsTab(
   sessions: SessionInfo[],
   sessionEnded: boolean,
   claudeResumeId: string | null,
-  safetyMode: SafetyMode,
-  config: { voice_enabled: boolean; theme: string; default_model?: string | null; default_effort?: string | null } | null,
 ): StartMenuItem[] {
   const list: StartMenuItem[] = []
 
@@ -48,81 +54,108 @@ function buildItemList(
     })
   }
 
-  for (const action of MENU_ACTIONS) {
-    list.push({
-      id: `action-${action.id}`,
-      type: 'action',
-      label: action.label,
-      sublabel: action.description,
-      actionId: action.id,
-    })
-  }
-
-  list.push({
-    id: 'setting-safety',
-    type: 'setting',
-    label: 'Safety Mode',
-    settingKey: 'safety_mode',
-    value: safetyMode,
-  })
-  list.push({
-    id: 'setting-voice',
-    type: 'setting',
-    label: 'Voice',
-    settingKey: 'voice_enabled',
-    value: config?.voice_enabled ? 'enabled' : 'disabled',
-  })
-  list.push({
-    id: 'setting-theme',
-    type: 'setting',
-    label: 'Theme',
-    settingKey: 'theme',
-    value: config?.theme || 'cyber',
-  })
-  list.push({
-    id: 'setting-model',
-    type: 'setting',
-    label: 'Model',
-    settingKey: 'default_model',
-    value: config?.default_model || 'default',
-  })
-  list.push({
-    id: 'setting-effort',
-    type: 'setting',
-    label: 'Effort',
-    settingKey: 'default_effort',
-    value: config?.default_effort || 'default',
-  })
-
   return list
 }
 
-function getSection(item: StartMenuItem): string {
-  if (item.type === 'newSession' || item.type === 'resumeSession') return 'main'
-  if (item.type === 'session') return 'sessions'
-  if (item.type === 'action') return 'actions'
-  if (item.type === 'setting') return 'settings'
-  return ''
-}
+function buildActionsTab(config: AppConfig | null): StartMenuItem[] {
+  const customActions = config?.custom_actions ?? []
+  const overrideMap = new Map<string, CustomActionDef>()
+  const newActions: CustomActionDef[] = []
+  const builtinIds = new Set(MENU_ACTIONS.map(a => a.id))
 
-const SECTION_LABELS: Record<string, string> = {
-  sessions: 'SESSIONS',
-  actions: 'ACTIONS',
-  settings: 'SETTINGS',
-}
-
-/** Pre-compute which item indices have a section header above them. */
-function computeSectionHeaders(items: StartMenuItem[]): Record<number, string> {
-  const headers: Record<number, string> = {}
-  let prevSection = ''
-  for (let i = 0; i < items.length; i++) {
-    const section = getSection(items[i])
-    if (section !== prevSection && SECTION_LABELS[section]) {
-      headers[i] = SECTION_LABELS[section]
+  for (const ca of customActions) {
+    if (builtinIds.has(ca.id as any)) {
+      overrideMap.set(ca.id, ca)
+    } else {
+      newActions.push(ca)
     }
-    prevSection = section
   }
-  return headers
+
+  const items: StartMenuItem[] = MENU_ACTIONS.map((action) => {
+    const override = overrideMap.get(action.id)
+    if (override) {
+      return {
+        id: `action-${action.id}`,
+        type: 'action' as const,
+        label: override.label,
+        sublabel: override.description ?? action.description,
+        icon: override.icon ?? action.icon,
+        actionId: action.id,
+        customPrompt: override.prompt,
+      }
+    }
+    return {
+      id: `action-${action.id}`,
+      type: 'action' as const,
+      label: action.label,
+      sublabel: action.description,
+      icon: action.icon,
+      actionId: action.id,
+    }
+  })
+
+  for (const ca of newActions) {
+    items.push({
+      id: `action-${ca.id}`,
+      type: 'action' as const,
+      label: ca.label,
+      sublabel: ca.description ?? '',
+      icon: ca.icon ?? '>',
+      customPrompt: ca.prompt,
+    })
+  }
+
+  return items
+}
+
+function buildSettingsTab(
+  safetyMode: SafetyMode,
+  config: { voice_enabled: boolean; theme: string; default_model?: string | null; default_effort?: string | null; whisper_model?: string } | null,
+): StartMenuItem[] {
+  return [
+    {
+      id: 'setting-safety',
+      type: 'setting',
+      label: 'Safety Mode',
+      settingKey: 'safety_mode',
+      value: safetyMode,
+    },
+    {
+      id: 'setting-voice',
+      type: 'setting',
+      label: 'Voice',
+      settingKey: 'voice_enabled',
+      value: config?.voice_enabled ? 'enabled' : 'disabled',
+    },
+    {
+      id: 'setting-theme',
+      type: 'setting',
+      label: 'Theme',
+      settingKey: 'theme',
+      value: config?.theme || 'cyber',
+    },
+    {
+      id: 'setting-model',
+      type: 'setting',
+      label: 'Model',
+      settingKey: 'default_model',
+      value: config?.default_model || 'default',
+    },
+    {
+      id: 'setting-effort',
+      type: 'setting',
+      label: 'Effort',
+      settingKey: 'default_effort',
+      value: config?.default_effort || 'default',
+    },
+    {
+      id: 'setting-whisper-model',
+      type: 'setting',
+      label: 'Whisper Model',
+      settingKey: 'whisper_model',
+      value: config?.whisper_model || 'base.en',
+    },
+  ]
 }
 
 export function StartMenu() {
@@ -134,6 +167,8 @@ export function StartMenu() {
     safetyMode,
     config,
     startMenuFocusIndex,
+    startMenuTab,
+    setStartMenuTab,
   } = useAppStore()
 
   const listRef = useRef<HTMLDivElement>(null)
@@ -142,12 +177,16 @@ export function StartMenu() {
   const sessionEnded = activeState?.ended ?? false
   const claudeResumeId = activeState?.resumeId ?? null
 
-  const items = useMemo(
-    () => buildItemList(sessions, sessionEnded, claudeResumeId, safetyMode, config),
-    [sessions, sessionEnded, claudeResumeId, safetyMode, config],
-  )
+  const items = useMemo(() => {
+    switch (startMenuTab) {
+      case 0: return buildSessionsTab(sessions, sessionEnded, claudeResumeId)
+      case 1: return buildActionsTab(config)
+      case 2: return buildSettingsTab(safetyMode, config)
+      default: return []
+    }
+  }, [startMenuTab, sessions, sessionEnded, claudeResumeId, safetyMode, config])
 
-  const sectionHeaders = useMemo(() => computeSectionHeaders(items), [items])
+  const actionsDisabled = !activeSessionId
 
   // Scroll focused item into view
   useEffect(() => {
@@ -162,48 +201,59 @@ export function StartMenu() {
 
   if (uiMode !== 'startMenu') return null
 
+  const footerHints = startMenuTab === 0
+    ? (<><span>A Select</span>{sessions.length > 0 && <span>X Close Session</span>}<span>B Close</span></>)
+    : startMenuTab === 1
+    ? (<><span>A Execute</span><span>B Close</span></>)
+    : (<><span>A Change</span><span>B Close</span></>)
+
   return (
     <div className="start-menu-overlay">
       <div className="start-menu">
         <div className="start-menu-header">DECKMIND</div>
-        <div className="start-menu-list" ref={listRef}>
+        <div className="start-menu-tabs">
+          {TAB_NAMES.map((name, i) => (
+            <button
+              key={name}
+              className={`start-menu-tab${i === startMenuTab ? ' active' : ''}`}
+              onClick={() => setStartMenuTab(i)}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+        <div className="start-menu-list" key={startMenuTab} ref={listRef}>
           {items.map((item, index) => {
-            const header = sectionHeaders[index]
             const isFocused = index === startMenuFocusIndex
             const isActive = item.type === 'session' && item.sessionId === activeSessionId
+            const isDisabled = item.type === 'action' && actionsDisabled
 
             return (
-              <div key={item.id}>
-                {header && (
-                  <div className="start-menu-section">{header}</div>
+              <div
+                key={item.id}
+                className={`start-menu-item${isFocused ? ' focused' : ''}${isActive ? ' active-session' : ''}${isDisabled ? ' disabled' : ''}`}
+                data-index={index}
+              >
+                <span className="start-menu-item-icon">
+                  {item.type === 'newSession' && '+'}
+                  {item.type === 'resumeSession' && '\u25B6'}
+                  {item.type === 'session' && (isActive ? '\u25B8' : '\u00B7')}
+                  {item.type === 'action' && (item.icon || '>')}
+                  {item.type === 'setting' && '\u2699'}
+                </span>
+                <span className="start-menu-item-label">{item.label}</span>
+                {item.type === 'setting' && (
+                  <span className="start-menu-item-value">{item.value}</span>
                 )}
-                <div
-                  className={`start-menu-item${isFocused ? ' focused' : ''}${isActive ? ' active-session' : ''}`}
-                  data-index={index}
-                >
-                  <span className="start-menu-item-icon">
-                    {item.type === 'newSession' && '+'}
-                    {item.type === 'resumeSession' && '\u25B6'}
-                    {item.type === 'session' && (isActive ? '\u25B8' : '\u00B7')}
-                    {item.type === 'action' && (MENU_ACTIONS.find(a => a.id === item.actionId)?.icon || '>')}
-                    {item.type === 'setting' && '\u2699'}
-                  </span>
-                  <span className="start-menu-item-label">{item.label}</span>
-                  {item.type === 'setting' && (
-                    <span className="start-menu-item-value">{item.value}</span>
-                  )}
-                  {(item.type === 'session' || item.type === 'action' || item.type === 'resumeSession') && item.sublabel && (
-                    <span className="start-menu-item-sublabel">{item.sublabel}</span>
-                  )}
-                </div>
+                {(item.type === 'session' || item.type === 'action' || item.type === 'resumeSession') && item.sublabel && (
+                  <span className="start-menu-item-sublabel">{item.sublabel}</span>
+                )}
               </div>
             )
           })}
         </div>
         <div className="start-menu-footer">
-          <span>A Select</span>
-          {sessions.length > 0 && <span>X Close Session</span>}
-          <span>B Close</span>
+          {footerHints}
         </div>
       </div>
     </div>
@@ -249,7 +299,7 @@ export async function executeStartMenuItem(item: StartMenuItem) {
     }
 
     case 'action': {
-      if (!state.activeSessionId || !item.actionId) return
+      if (!state.activeSessionId) return
       state.setUIMode('terminal')
       if (item.actionId === 'interrupt') {
         try {
@@ -257,7 +307,14 @@ export async function executeStartMenuItem(item: StartMenuItem) {
         } catch (e) {
           console.error('Failed to interrupt:', e)
         }
-      } else {
+      } else if (item.customPrompt) {
+        try {
+          const prompt = await invoke<string>('build_custom_prompt', { template: item.customPrompt })
+          state.setDraftText(prompt)
+        } catch (e) {
+          console.error('Failed to build custom prompt:', e)
+        }
+      } else if (item.actionId) {
         try {
           const prompt = await invoke<string>('build_action_prompt', { action: item.actionId })
           state.setDraftText(prompt)
@@ -317,6 +374,9 @@ export async function executeStartMenuItem(item: StartMenuItem) {
             console.error('Failed to update config:', e)
           }
         }
+      }
+      else if (item.settingKey === 'whisper_model') {
+        state.setUIMode('modelManager')
       }
       // theme: display-only for now (no cycling implemented)
       break

@@ -10,12 +10,20 @@ export type SemanticAction =
 
 export type SafetyMode = 'observe' | 'suggest' | 'confirm' | 'auto'
 
-export type UIMode = 'terminal' | 'startMenu' | 'newSession' | 'dirBrowser'
+export type UIMode = 'terminal' | 'startMenu' | 'newSession' | 'dirBrowser' | 'modelManager'
 
 export interface DirEntry {
   name: string
   path: string
   is_dir: boolean
+}
+
+export interface CustomActionDef {
+  id: string
+  label: string
+  description?: string
+  icon?: string
+  prompt: string
 }
 
 export interface StartMenuItem {
@@ -25,6 +33,8 @@ export interface StartMenuItem {
   sublabel?: string
   sessionId?: string
   actionId?: SemanticAction
+  customPrompt?: string
+  icon?: string
   settingKey?: string
   value?: string
 }
@@ -59,6 +69,24 @@ export interface AppConfig {
   default_effort: string | null
   voice_enabled: boolean
   theme: string
+  custom_actions?: CustomActionDef[]
+}
+
+export interface WhisperModelInfo {
+  name: string
+  filename: string
+  size_bytes: number
+  size_label: string
+  downloaded: boolean
+}
+
+export interface DownloadProgress {
+  model_name: string
+  downloaded_bytes: number
+  total_bytes: number
+  percent: number
+  done: boolean
+  error: string | null
 }
 
 export interface ActionDef {

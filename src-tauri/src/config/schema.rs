@@ -31,6 +31,17 @@ pub struct ButtonMapping {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomAction {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    pub prompt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default = "default_claude_path")]
     pub claude_path: String,
@@ -58,6 +69,9 @@ pub struct AppConfig {
 
     #[serde(default = "default_theme")]
     pub theme: String,
+
+    #[serde(default)]
+    pub custom_actions: Vec<CustomAction>,
 }
 
 fn default_claude_path() -> String {
@@ -157,6 +171,7 @@ impl Default for AppConfig {
             default_effort: None,
             voice_enabled: true,
             theme: default_theme(),
+            custom_actions: Vec::new(),
         }
     }
 }
